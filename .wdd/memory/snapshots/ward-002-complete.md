@@ -1,11 +1,11 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 2 complete — 2026-03-31
+Ward 1 complete — 2026-03-31
 
 ## Current State
-Ward 1+2 komplet (23/23 tests grønne). OPFS pipeline etableret: chunked file write (4MB), sync read via SyncAccessHandle, cleanup.
-Projekt har nu: feature detection, worker bridge, OPFS storage utilities. Klar til Rust/Wasm PLY parser.
+Ward 1 komplet. Feature detection og Worker bridge er implementeret og testet (17/17 tests grønne).
+Projekt har nu: TypeScript scaffolding (Vite + Vitest), feature-flags modul, typed Worker bridge med FIFO message queue.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -14,8 +14,6 @@ Projekt har nu: feature detection, worker bridge, OPFS storage utilities. Klar t
 | FIFO message queue over ID-correlation | Simpler, korrekt for single-threaded workers, ingen krav til worker echo | 1 |
 | memory64 detection via Wasm validate | Håndkodet minimal Wasm binary med 0x05 flag — ingen runtime compilation | 1 |
 | OPFS for file I/O | Undgår at holde gigabyte-filer i JS heap; synkron læsning i Worker | 2 |
-| 4MB chunk size for OPFS write | Balancerer memory footprint vs. syscall overhead; Blob.slice() håndterer GC | 2 |
-| SyncAccessHandle isolation | Isoleret i egen funktion da den KUN virker i dedicated Worker context | 2 |
 | SoA over AoS | GPU-venligt layout, cache-effektiv iteration over millioner af splats | 3-4 |
 | GPU Radix Sort | O(n) sortering, undgår CPU-GPU round-trip per frame | 6 |
 | Soft delete via tags | Gratis Undo — data fjernes først ved eksport | 10 |
@@ -38,9 +36,8 @@ Projekt har nu: feature detection, worker bridge, OPFS storage utilities. Klar t
 | Frametime budget | < 16ms (60fps) | All |
 
 ## Known Limitations
-- `createWorker()` er stadig en placeholder — rigtig Wasm Worker instantiation kræver Rust crate
-- Feature detection + OPFS tests kører i Node med mocks — browser-integration test mangler
-- OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
+- `createWorker()` er en placeholder — rigtig Wasm Worker instantiation kræver Rust crate (Ward 2+)
+- Feature detection tests kører i Node med mocks — browser-integration test mangler
 
 ## What Comes Next
-- Ward 3: PLY Streaming Parser — Rust crate, ASCII header parsing, binary chunk streaming, SoA layout
+- Ward 2: The OPFS Pipeline — drag-drop file receiver, OPFS streaming writer, Rust sync read API

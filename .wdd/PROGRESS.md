@@ -1,13 +1,13 @@
 # Progress — vsplat
 
 ## Summary
-1 of 11 Wards complete · 76 estimated tests · 0 blocked
+2 of 11 Wards complete · 76 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
 |------|------|-------|--------|------|
 | 1 | Infrastructure & Feature Detection | 6 | ✅ Complete | 2026-03-31 |
-| 2 | The OPFS Pipeline | 6 | 📋 Planned | - |
+| 2 | The OPFS Pipeline | 6 | ✅ Complete | 2026-03-31 |
 | 3 | PLY Streaming Parser | 8 | 📋 Planned | - |
 | 4 | 3D ECS Core | 8 | 📋 Planned | - |
 | 5 | WebGPU Low-Copy Bridge & Basic Render | 7 | 📋 Planned | - |

@@ -3,12 +3,12 @@ ward: 2
 revision: null
 name: "The OPFS Pipeline"
 epic: "native-web-foundation"
-status: "planned"
+status: "complete"
 dependencies: [1]
 layer: "typescript"
 estimated_tests: 6
 created: "2026-03-31"
-completed: null
+completed: "2026-03-31"
 ---
 # Ward 002: The OPFS Pipeline
 
