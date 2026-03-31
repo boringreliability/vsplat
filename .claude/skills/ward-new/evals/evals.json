@@ -1,0 +1,29 @@
+{
+  "skill_name": "ward-new",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a new ward for user authentication",
+      "expected_output": "Agent asks for epic (or suggests existing ones), runs wdd ward create, writes full spec in the ward file, sets status to red, writes test file, presents tests, and STOPs.",
+      "assertions": [
+        "Agent asks about or suggests an epic before creating",
+        "Agent runs wdd ward create with name and epic",
+        "Agent writes a full spec with Scope, Tests table, Must NOT, Must DO sections",
+        "Agent writes test file matching the Tests table",
+        "Agent runs wdd ward status <id> red",
+        "Agent STOPs and presents tests for approval before implementing"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Add a feature for response caching",
+      "expected_output": "Agent treats this as ward creation, not direct implementation. Asks for details, creates ward, writes spec and tests, STOPs for approval.",
+      "assertions": [
+        "Agent does NOT start writing implementation code directly",
+        "Agent creates a ward for the feature",
+        "Agent writes tests before any implementation",
+        "Agent STOPs for human approval"
+      ]
+    }
+  ]
+}

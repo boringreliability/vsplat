@@ -1,0 +1,19 @@
+{
+  "name": "vsplat",
+  "version": "1.2.0",
+  "type": "module",
+  "description": "Browser-Native 3D Gaussian Splatting Studio",
+  "license": "(MIT OR Apache-2.0)",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:wasm": "wasm-pack build crates/vsplat-core --target web --out-dir ../../pkg",
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "vite": "^6.0.0",
+    "@vitest/browser": "^3.0.0"
+  }
+}

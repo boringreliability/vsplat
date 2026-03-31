@@ -1,0 +1,27 @@
+{
+  "skill_name": "wdd",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I just opened this project, what's the status?",
+      "expected_output": "Agent runs wdd session, reads output, and summarizes: project identity, current state, active ward and its status, any blockers or warnings from wdd validate.",
+      "assertions": [
+        "Agent runs wdd session before answering",
+        "Response includes project name from PROJECT.md",
+        "Response identifies the current active ward and its status",
+        "Agent runs wdd validate to check project health"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Help me with this codebase, I want to add a new feature",
+      "expected_output": "Agent runs wdd session first to understand context before suggesting any implementation. Summarizes WDD state and asks what the user wants to build, suggesting /ward-new to create a ward.",
+      "assertions": [
+        "Agent runs wdd session before doing any code work",
+        "Agent does NOT start writing code immediately",
+        "Response mentions the current WDD state",
+        "Agent suggests creating a ward for the new feature"
+      ]
+    }
+  ]
+}

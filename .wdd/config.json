@@ -1,0 +1,17 @@
+{
+  "project": "vsplat",
+  "version": "1.2.0",
+  "methodology": "wdd",
+  "wdd_version": "1.0",
+  "ai_tools": {
+    "primary": "claude-code",
+    "review": []
+  },
+  "conventions": {
+    "test_framework": "vitest + wasm-pack test",
+    "lint": "cargo clippy + eslint",
+    "format": "cargo fmt + prettier"
+  },
+  "ward_prefix": "ward",
+  "ward_digits": 3
+}

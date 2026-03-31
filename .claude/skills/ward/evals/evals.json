@@ -1,0 +1,40 @@
+{
+  "skill_name": "ward",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Continue working on the current ward",
+      "expected_output": "Agent checks ward status via wdd session. If ward is in planned status, transitions to red, writes tests, presents them, and STOPs for approval.",
+      "assertions": [
+        "Agent runs wdd session to find current ward",
+        "Agent checks the ward's current status before acting",
+        "Agent writes tests BEFORE implementation code",
+        "Agent STOPs and presents tests to user for approval",
+        "Agent does NOT proceed to implementation without explicit approval"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The tests look good, approved. Go ahead.",
+      "expected_output": "Agent transitions ward from red to approved to gold, then implements until tests pass. Presents implementation and STOPs for approval.",
+      "assertions": [
+        "Agent runs wdd ward status <id> approved",
+        "Agent runs wdd ward status <id> gold",
+        "Agent implements code to make tests pass",
+        "Agent STOPs and presents implementation for approval",
+        "Agent does NOT run wdd complete without explicit approval"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Implement the caching feature from the ward spec",
+      "expected_output": "If ward is in planned status, agent does NOT jump to implementation. Instead starts Red phase: writes tests first, presents them, and STOPs.",
+      "assertions": [
+        "Agent checks ward status before implementing",
+        "If ward is planned, agent writes tests FIRST, not implementation",
+        "Agent does NOT skip the Red phase even when asked to implement",
+        "Agent STOPs for approval after writing tests"
+      ]
+    }
+  ]
+}
