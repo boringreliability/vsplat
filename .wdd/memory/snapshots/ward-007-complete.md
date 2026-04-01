@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 7 complete — 2026-04-01
+Ward 6 complete — 2026-04-01
 
 ## Current State
-Ward 1-7 complete. 70 tests (54 TS + 16 Rust). Full 3DGS rendering pipeline: covariance→conic projection, SH degree 0-3, back-camera culling, dynamic quad sizing, premultiplied alpha. CPU/GPU paritet verified.
+Ward 1-6 complete. 61 tests (45 TS + 16 Rust). GPU radix sort med CPU reference impl, floatToSortableUint bit-manipulation, 4-pass LSD sort med ping-pong buffers, og encodeSort orchestration. Klar til Ward 7: SH Fragment Shader.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-7 complete. 70 tests (54 TS + 16 Rust). Full 3DGS rendering pipeline: cov
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 8: 3D Camera & Pointer Interception — orbit/pan/zoom controls, ray casting, pointer events
+- Ward 7: Splat Fragment Shader (Spherical Harmonics) — SH evaluation, 3D Gaussian rendering, alpha blending

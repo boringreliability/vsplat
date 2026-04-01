@@ -3,12 +3,12 @@ ward: 7
 revision: null
 name: "Splat Fragment Shader (Spherical Harmonics)"
 epic: "ecs-webgpu-engine"
-status: "planned"
+status: "complete"
 dependencies: [6]
 layer: "wgsl"
 estimated_tests: 6
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 007: Splat Fragment Shader (Spherical Harmonics)
 
