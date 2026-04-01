@@ -3,12 +3,12 @@ ward: 13
 revision: 2
 name: "Generational ECS Safety"
 epic: "production-hardening"
-status: "planned"
+status: "complete"
 dependencies: [4, 10]
 layer: "rust+typescript"
 estimated_tests: 11
 created: "2026-04-01"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 013: Generational ECS Safety
 

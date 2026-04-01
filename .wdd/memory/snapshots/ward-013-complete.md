@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 13 complete — 2026-04-01
+Ward 12 complete — 2026-04-01
 
 ## Current State
-13 of 19 wards complete (hardening phase 1: 2/4). 137 tests (121 TS + 16 Rust). Generational ECS safety: EntityHandle + GenerationMap validation cache, generation-safe DeleteCommand, stale handle skip on execute/undo/despawn.
+12 of 19 wards complete (hardening phase 1 started). 124 tests (108 TS + 16 Rust). Global 3-pass radix sort with multi-level scan, scanAux3 contract buffer, silent-corruption guard, honest stability claims.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 13 complete — 2026-04-01
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 14: Unified SoA Material Core — eliminate per-entity Vec<f32> SH allocations
+- Ward 13: Generational ECS Safety — stale handle rejection in TypeScript command layer
