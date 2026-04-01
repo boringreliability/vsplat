@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 9 complete — 2026-04-01
+Ward 8 complete — 2026-04-01
 
 ## Current State
-Ward 1-9 complete. 90 tests (74 TS + 16 Rust). Full selection pipeline: frustum culling (Gribb/Hartmann), zero-alloc lasso with precomputed BBox, strict boundary contract (all edges/vertices = outside). 2 wards remaining.
+Ward 1-8 complete. 78 tests (62 TS + 16 Rust). Full 3DGS pipeline + camera system: perspective (WebGPU Z∈[0,1]), lookAt, orbit/fly controllers, 176-byte WGSL-aligned uniform upload. 3 wards remaining.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-9 complete. 90 tests (74 TS + 16 Rust). Full selection pipeline: frustum 
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 10: Command System & Editor Actions — undo/redo, delete, transform commands
+- Ward 9: Frustum Culling & Hit Testing (Lasso) — frustum planes, point-in-polygon, selection system

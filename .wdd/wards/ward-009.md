@@ -3,12 +3,12 @@ ward: 9
 revision: null
 name: "Frustum Culling & Hit Testing (Lasso)"
 epic: "interaction-mlp"
-status: "planned"
+status: "complete"
 dependencies: [8]
 layer: "rust"
 estimated_tests: 7
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 009: Frustum Culling & Hit Testing (Lasso)
 
