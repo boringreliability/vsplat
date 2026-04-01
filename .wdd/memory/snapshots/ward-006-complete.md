@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 6 complete — 2026-04-01
+Ward 5 complete — 2026-04-01
 
 ## Current State
-Ward 1-6 complete. 61 tests (45 TS + 16 Rust). GPU radix sort med CPU reference impl, floatToSortableUint bit-manipulation, 4-pass LSD sort med ping-pong buffers, og encodeSort orchestration. Klar til Ward 7: SH Fragment Shader.
+Ward 1-5 complete. 50 tests (34 TS + 16 Rust). WebGPU low-copy bridge med Storage Buffer model, WGSL billboard shader, render loop, og dirty-flag optimering. Klar til Ward 6: Radix Sort Compute Shader.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-6 complete. 61 tests (45 TS + 16 Rust). GPU radix sort med CPU reference 
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 7: Splat Fragment Shader (Spherical Harmonics) — SH evaluation, 3D Gaussian rendering, alpha blending
+- Ward 6: Radix Sort Compute Shader — GPU-accelereret sortering for korrekt alpha-blending

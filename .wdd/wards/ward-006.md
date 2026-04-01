@@ -3,12 +3,12 @@ ward: 6
 revision: null
 name: "Radix Sort Compute Shader"
 epic: "ecs-webgpu-engine"
-status: "planned"
+status: "complete"
 dependencies: [5]
 layer: "wgsl"
-estimated_tests: 6
+estimated_tests: 10
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 006: Radix Sort Compute Shader
 
