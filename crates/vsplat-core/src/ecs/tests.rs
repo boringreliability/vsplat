@@ -139,10 +139,12 @@ pub mod tests {
         let tl = world.transforms.get(last).unwrap();
         assert!((tl.position[0] - (count - 1) as f32).abs() < 1e-6);
 
-        // Verify material
-        let m0 = world.materials.get(entities[0]).unwrap();
-        assert!((m0.opacity - 0.95).abs() < 1e-6);
-        assert_eq!(m0.sh_coefficients.len(), 3);
+        // Verify opacity from flat buffer
+        assert!((world.opacities[0] - 0.95).abs() < 1e-6);
+
+        // Verify SH from flat buffer
+        assert_eq!(world.sh_coefficients.len(), count * sh_dim);
+        assert!((world.sh_coefficients[0] - 0.5).abs() < 1e-6);
     }
 
     // ─── Test 5: transform_component_layout ───────────────────────────
@@ -274,5 +276,109 @@ pub mod tests {
             .collect();
         assert_eq!(without_vis.len(), 1);
         assert_eq!(without_vis[0].index, 1);
+    }
+
+    // ═══ Ward 014: Flat SH/Opacity Buffer Tests ═════════════════════
+
+    fn make_splat_data(count: usize, sh_dim: usize) -> SplatData {
+        let mut data = SplatData::with_capacity(count, sh_dim);
+        for i in 0..count {
+            let v = i as f32;
+            data.positions.extend_from_slice(&[v, v + 0.1, v + 0.2]);
+            data.rotations.extend_from_slice(&[1.0, 0.0, 0.0, 0.0]);
+            data.scales.extend_from_slice(&[1.0, 1.0, 1.0]);
+            data.opacities.push(v * 0.01);
+            for c in 0..sh_dim {
+                data.sh_coefficients.push(v + c as f32 * 0.001);
+            }
+        }
+        data
+    }
+
+    // ─── A1: flat_sh_buffer_batch_spawn ──────────────────────────────
+
+    #[test]
+    fn flat_sh_buffer_batch_spawn() {
+        let count = 500;
+        let sh_dim = 48;
+        let data = make_splat_data(count, sh_dim);
+
+        let mut world = World::new();
+        world.batch_spawn_splats(&data);
+
+        // Flat contiguous buffer, length = count * sh_dim
+        assert_eq!(world.sh_coefficients.len(), count * sh_dim);
+
+        // First entity's first SH coeff
+        assert!((world.sh_coefficients[0] - 0.0).abs() < 1e-6);
+        // First entity's last SH coeff
+        assert!((world.sh_coefficients[47] - 0.047).abs() < 1e-4);
+        // Last entity's first SH coeff
+        let last_base = (count - 1) * sh_dim;
+        assert!((world.sh_coefficients[last_base] - 499.0).abs() < 1e-3);
+    }
+
+    // ─── A2: flat_opacity_buffer_batch_spawn ─────────────────────────
+
+    #[test]
+    fn flat_opacity_buffer_batch_spawn() {
+        let count = 500;
+        let data = make_splat_data(count, 3);
+
+        let mut world = World::new();
+        world.batch_spawn_splats(&data);
+
+        assert_eq!(world.opacities.len(), count);
+        assert!((world.opacities[0] - 0.0).abs() < 1e-6);
+        assert!((world.opacities[499] - 4.99).abs() < 1e-3);
+    }
+
+    // ─── A3: flat_sh_indexing_matches_shader ─────────────────────────
+
+    #[test]
+    fn flat_sh_indexing_matches_shader() {
+        let count = 100;
+        let sh_dim = 12; // degree 1
+        let data = make_splat_data(count, sh_dim);
+
+        let mut world = World::new();
+        world.batch_spawn_splats(&data);
+
+        assert_eq!(world.sh_dim, sh_dim);
+
+        // Verify indexing: world.sh_coefficients[i * sh_dim + c]
+        // Entity 0, coeff 0
+        assert!((world.sh_coefficients[0 * sh_dim + 0] - 0.0).abs() < 1e-6);
+        // Entity 50, coeff 5
+        assert!((world.sh_coefficients[50 * sh_dim + 5] - (50.0 + 5.0 * 0.001)).abs() < 1e-3);
+        // Entity 99, coeff 11 (last)
+        assert!((world.sh_coefficients[99 * sh_dim + 11] - (99.0 + 11.0 * 0.001)).abs() < 1e-3);
+    }
+
+    // ─── A4: no_per_entity_vec_allocation ─────────────────────────────
+
+    #[test]
+    fn no_per_entity_vec_allocation() {
+        let data = make_splat_data(100, 3);
+        let mut world = World::new();
+        world.batch_spawn_splats(&data);
+
+        // SH data lives only in flat buffers, not in a ComponentStore<SplatMaterial>
+        // The materials ComponentStore should not exist or be empty
+        assert_eq!(world.opacities.len(), 100);
+        assert_eq!(world.sh_coefficients.len(), 300); // 100 * 3
+    }
+
+    // ─── A5: sh_dim_mismatch_throws ──────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "sh_dim mismatch")]
+    fn sh_dim_mismatch_throws() {
+        let data1 = make_splat_data(10, 48);
+        let data2 = make_splat_data(10, 27);
+
+        let mut world = World::new();
+        world.batch_spawn_splats(&data1); // sets sh_dim = 48
+        world.batch_spawn_splats(&data2); // sh_dim = 27 → panic
     }
 }

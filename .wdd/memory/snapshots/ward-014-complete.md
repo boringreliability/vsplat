@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 14 complete — 2026-04-02
+Ward 13 complete — 2026-04-01
 
 ## Current State
-14 of 19 wards complete (hardening phase 1: 3/4). 150 tests (129 TS + 21 Rust). Flat SoA material buffers: per-entity Vec<f32> eliminated, bulk extend_from_slice, GPU SH+opacity buffers with dirty-flag and length guards.
+13 of 19 wards complete (hardening phase 1: 2/4). 137 tests (121 TS + 16 Rust). Generational ECS safety: EntityHandle + GenerationMap validation cache, generation-safe DeleteCommand, stale handle skip on execute/undo/despawn.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 14 complete — 2026-04-02
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 15: Production Worker Runtime — real Wasm bootstrap, handshake, cancellation
+- Ward 14: Unified SoA Material Core — eliminate per-entity Vec<f32> SH allocations

@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-13 of 19 Wards complete · 144 estimated tests · 0 blocked
+14 of 19 Wards complete · 150 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -19,7 +19,7 @@
 | 11 | Export Engine | 7 | ✅ Complete | 2026-04-01 |
 | 122 | Global GPU Radix Sort | 12 | ✅ Complete | 2026-04-01 |
 | 132 | Generational ECS Safety | 11 | ✅ Complete | 2026-04-01 |
-| 14 | Unified SoA Material Core | 5 | 📋 Planned | - |
+| 141 | Unified SoA Material Core | 11 | ✅ Complete | 2026-04-01 |
 | 15 | Production Worker Runtime | 6 | 📋 Planned | - |
 | 16 | True Streaming I/O | 7 | 📋 Planned | - |
 | 17 | Runtime Resilience & Fallbacks | 7 | 📋 Planned | - |
@@ -27,4 +27,4 @@
 | 19 | Observability & Failure Forensics | 6 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 144
+- Estimated total: 150
