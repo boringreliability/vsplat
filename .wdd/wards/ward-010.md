@@ -3,12 +3,12 @@ ward: 10
 revision: null
 name: "Command System & Editor Actions"
 epic: "interaction-mlp"
-status: "planned"
+status: "complete"
 dependencies: [9]
 layer: "rust"
 estimated_tests: 8
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 010: Command System & Editor Actions
 

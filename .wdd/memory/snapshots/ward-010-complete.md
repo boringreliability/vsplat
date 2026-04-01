@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 10 complete — 2026-04-01
+Ward 9 complete — 2026-04-01
 
 ## Current State
-Ward 1-10 complete. 102 tests (86 TS + 16 Rust). Command system med undo/redo, soft-delete via bitwise flags, GPU visibility mask, sort filtering. Redo-læk-fri, maxDepth-håndhævet, index-valideret. 1 ward remaining.
+Ward 1-9 complete. 90 tests (74 TS + 16 Rust). Full selection pipeline: frustum culling (Gribb/Hartmann), zero-alloc lasso with precomputed BBox, strict boundary contract (all edges/vertices = outside). 2 wards remaining.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-10 complete. 102 tests (86 TS + 16 Rust). Command system med undo/redo, s
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 11: Export Engine — PLY serialization, deleted splat filtering, Blob download
+- Ward 10: Command System & Editor Actions — undo/redo, delete, transform commands
