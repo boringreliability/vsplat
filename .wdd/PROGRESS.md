@@ -8,7 +8,7 @@
 |------|------|-------|--------|------|
 | 1 | Infrastructure & Feature Detection | 6 | ✅ Complete | 2026-03-31 |
 | 2 | The OPFS Pipeline | 6 | ✅ Complete | 2026-03-31 |
-| 3 | PLY Streaming Parser | 8 | 📋 Planned | - |
+| 3 | PLY Streaming Parser | 8 | 🔨 Gold | - |
 | 4 | 3D ECS Core | 8 | 📋 Planned | - |
 | 5 | WebGPU Low-Copy Bridge & Basic Render | 7 | 📋 Planned | - |
 | 6 | Radix Sort Compute Shader | 6 | 📋 Planned | - |

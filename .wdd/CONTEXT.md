@@ -1,11 +1,11 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 2 complete — 2026-03-31
+Arkitektonisk review — 2026-03-31
 
 ## Current State
-Ward 1+2 komplet (23/23 tests grønne). OPFS pipeline etableret: chunked file write (4MB), sync read via SyncAccessHandle, cleanup.
-Projekt har nu: feature detection, worker bridge, OPFS storage utilities. Klar til Rust/Wasm PLY parser.
+Ward 1+2 complete. Ward 3 (PLY Streaming Parser) er i gold fase — implementation done, afventer godkendelse.
+31 tests total (23 TS + 8 Rust). Rust crate `vsplat-core` oprettet med PLY header parser + chunked binary streaming.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -43,4 +43,5 @@ Projekt har nu: feature detection, worker bridge, OPFS storage utilities. Klar t
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 3: PLY Streaming Parser — Rust crate, ASCII header parsing, binary chunk streaming, SoA layout
+- Ward 3: Afventer godkendelse af Gold-implementation (alle 8 Rust tests grønne)
+- Ward 4: 3D ECS Core — port vcores ComponentStore og Swap-and-Pop til 3D

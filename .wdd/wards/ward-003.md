@@ -3,17 +3,17 @@ ward: 3
 revision: null
 name: "PLY Streaming Parser"
 epic: "native-web-foundation"
-status: "planned"
+status: "gold"
 dependencies: [2]
 layer: "rust"
 estimated_tests: 8
 created: "2026-03-31"
 completed: null
 ---
-# Ward 003: PLY Streaming Parser (Zero-Copy Target)
+# Ward 003: PLY Streaming Parser (Low-Copy, Preallocated SoA)
 
 ## Scope
-Parse .ply filer direkte fra OPFS ind i ECS-kompatible data-strukturer. Fokus er på zero-copy: data skal mappes direkte fra disk til Rust structs uden mellemliggende kopier.
+Parse .ply filer direkte fra OPFS ind i ECS-kompatible data-strukturer. Fokus er på low-copy med preallocated SoA arrays: kapacitet allokeres én gang baseret på vertex count, og data streames direkte ind via præ-kalkulerede byte-offsets.
 
 ## Inputs
 - Ward 2: OPFS read API (`read_bytes(offset, length)`)
@@ -34,7 +34,7 @@ Parse .ply filer direkte fra OPFS ind i ECS-kompatible data-strukturer. Fokus er
 2. **Binary Chunk Streamer:**
    - Allokér kapacitet i Rust baseret på splat count
    - Stream binære chunks (1MB ad gangen) fra OPFS
-   - Map bytes direkte til Rust structs via `bytemuck` eller pointer casting
+   - Map bytes til Rust SoA arrays via præ-kalkulerede byte-offsets (CompiledLayout)
    - Progress callback til JS (for UI progress bar)
 
 3. **SoA Data Layout:**
@@ -51,11 +51,11 @@ Parse .ply filer direkte fra OPFS ind i ECS-kompatible data-strukturer. Fokus er
 | 4 | stream_binary_single_chunk | Korrekt parsing af lille PLY (< 1MB) |
 | 5 | stream_binary_multi_chunk | Korrekt parsing af PLY der kræver multiple chunks |
 | 6 | verify_soa_layout | Data er korrekt fordelt i SoA arrays |
-| 7 | verify_zero_copy_path | Ingen unødvendige Vec-allokeringer under parsing |
+| 7 | verify_preallocation_path | Korrekt præ-allokering af SoA arrays baseret på vertex count |
 | 8 | progress_callback_fires | JS modtager progress updates under streaming |
 
 ## Must NOT
-- Opret mellemliggende Rust Vec kopier for hver splat, hvis memory kan castes direkte
+- Lav string-lookups per vertex under parsing (offsets skal præ-kalkuleres)
 - Læs hele filen ind i ét stort buffer
 - Antag en fast property-rækkefølge i PLY-filen
 

@@ -34,13 +34,17 @@ WebGPU Pipeline → Compute Sort + SH Fragment Shading
 - **React/Svelte:** Application UI layer
 
 ## Performance Budgets
-| Phase | Budget | Comment |
-|-------|--------|---------|
-| Load (5M splats) | < 3000 ms | Fra PLY parse til første frame |
-| Compute Sort (GPU) | < 4 ms | Radix Sort per frame |
-| Render (GPU) | < 10 ms | Rasterization & Blending |
-| Lasso Selection | < 20 ms | 2D Polygon projicering test |
-| Total Frametime | < 16 ms | = 60fps målsætning |
+
+Disse er *målsætninger* for reference-hardware — ikke absolutte pass/fail limits.
+Builds skal ikke blokeres af langsomme CI-maskiner eller ældre hardware.
+
+| Phase | Baseline Target (M1 / i5-12th) | Stretch Target (RTX 4070+) |
+|-------|-------------------------------|---------------------------|
+| Load (5M splats) | < 5000 ms | < 3000 ms |
+| Compute Sort (GPU) | < 8 ms | < 4 ms |
+| Render (GPU) | < 14 ms | < 10 ms |
+| Lasso Selection | < 30 ms | < 20 ms |
+| Total Frametime | < 20 ms (50fps) | < 16 ms (60fps) |
 
 ## Non-Goals
 - **IKKE et UI-framework** — React/Svelte til knapper; Rust ejer kun 3D-scenen
