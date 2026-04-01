@@ -1,10 +1,11 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 3 complete — 2026-03-31
+Arkitektonisk review — 2026-03-31
 
 ## Current State
-Ward 1-3 complete. 31 tests (23 TS + 8 Rust). PLY parser med CompiledLayout, strict byte validation, og chunked streaming er production-ready. Klar til Ward 4: 3D ECS Core.
+Ward 1+2 complete. Ward 3 (PLY Streaming Parser) er i gold fase — implementation done, afventer godkendelse.
+31 tests total (23 TS + 8 Rust). Rust crate `vsplat-core` oprettet med PLY header parser + chunked binary streaming.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +43,5 @@ Ward 1-3 complete. 31 tests (23 TS + 8 Rust). PLY parser med CompiledLayout, str
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 4: 3D ECS Core — Entity management, ComponentStore, Swap-and-Pop deletion, Transform + SplatMaterial
+- Ward 3: Afventer godkendelse af Gold-implementation (alle 8 Rust tests grønne)
+- Ward 4: 3D ECS Core — port vcores ComponentStore og Swap-and-Pop til 3D

@@ -3,12 +3,12 @@ ward: 3
 revision: null
 name: "PLY Streaming Parser"
 epic: "native-web-foundation"
-status: "gold"
+status: "complete"
 dependencies: [2]
 layer: "rust"
 estimated_tests: 8
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 003: PLY Streaming Parser (Low-Copy, Preallocated SoA)
 
