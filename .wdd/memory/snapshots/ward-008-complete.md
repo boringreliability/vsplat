@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 8 complete — 2026-04-01
+Ward 7 complete — 2026-04-01
 
 ## Current State
-Ward 1-8 complete. 78 tests (62 TS + 16 Rust). Full 3DGS pipeline + camera system: perspective (WebGPU Z∈[0,1]), lookAt, orbit/fly controllers, 176-byte WGSL-aligned uniform upload. 3 wards remaining.
+Ward 1-7 complete. 70 tests (54 TS + 16 Rust). Full 3DGS rendering pipeline: covariance→conic projection, SH degree 0-3, back-camera culling, dynamic quad sizing, premultiplied alpha. CPU/GPU paritet verified.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-8 complete. 78 tests (62 TS + 16 Rust). Full 3DGS pipeline + camera syste
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 9: Frustum Culling & Hit Testing (Lasso) — frustum planes, point-in-polygon, selection system
+- Ward 8: 3D Camera & Pointer Interception — orbit/pan/zoom controls, ray casting, pointer events
