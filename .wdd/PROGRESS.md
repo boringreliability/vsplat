@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-10 of 11 Wards complete · 84 estimated tests · 0 blocked
+11 of 11 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -16,7 +16,7 @@
 | 8 | 3D Camera & Pointer Interception | 7 | ✅ Complete | 2026-04-01 |
 | 9 | Frustum Culling & Hit Testing (Lasso) | 7 | ✅ Complete | 2026-04-01 |
 | 10 | Command System & Editor Actions | 8 | ✅ Complete | 2026-04-01 |
-| 11 | Export Engine | 7 | 📋 Planned | - |
+| 11 | Export Engine | 7 | ✅ Complete | 2026-04-01 |
 
 ## Test Summary
 - Estimated total: 84

@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 11 complete — 2026-04-01
+Ward 10 complete — 2026-04-01
 
 ## Current State
-ALL 11 WARDS COMPLETE. 112 tests (96 TS + 16 Rust). Full roundtrip: PLY import → ECS → WebGPU render → camera → selection → edit → export. Batched streaming export with generisk type support.
+Ward 1-10 complete. 102 tests (86 TS + 16 Rust). Command system med undo/redo, soft-delete via bitwise flags, GPU visibility mask, sort filtering. Redo-læk-fri, maxDepth-håndhævet, index-valideret. 1 ward remaining.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ ALL 11 WARDS COMPLETE. 112 tests (96 TS + 16 Rust). Full roundtrip: PLY import �
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- All wards complete. Next phase: browser integration, Wasm compilation, and end-to-end testing.
+- Ward 11: Export Engine — PLY serialization, deleted splat filtering, Blob download

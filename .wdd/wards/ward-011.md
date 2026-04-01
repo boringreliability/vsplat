@@ -3,12 +3,12 @@ ward: 11
 revision: null
 name: "Export Engine"
 epic: "roundtrip"
-status: "planned"
+status: "complete"
 dependencies: [10]
 layer: "rust"
 estimated_tests: 7
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 011: Export Engine
 
