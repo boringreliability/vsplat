@@ -3,12 +3,12 @@ ward: 4
 revision: null
 name: "3D ECS Core"
 epic: "ecs-webgpu-engine"
-status: "planned"
+status: "complete"
 dependencies: [3]
 layer: "rust"
 estimated_tests: 8
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 004: 3D ECS Core (Porting vcore)
 

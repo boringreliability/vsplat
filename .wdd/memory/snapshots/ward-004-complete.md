@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 4 complete — 2026-03-31
+Ward 3 complete — 2026-03-31
 
 ## Current State
-Ward 1-4 complete. 39 tests (23 TS + 16 Rust). ECS Core med generational entities, ComponentStore (Swap-and-Pop), batch spawn fra PLY data, og Visibility bitflags for soft-delete. Klar til Ward 5: WebGPU Bridge.
+Ward 1-3 complete. 31 tests (23 TS + 8 Rust). PLY parser med CompiledLayout, strict byte validation, og chunked streaming er production-ready. Klar til Ward 4: 3D ECS Core.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-4 complete. 39 tests (23 TS + 16 Rust). ECS Core med generational entitie
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 5: WebGPU Low-Copy Bridge & Basic Render — Wasm→GPU memory mapping, billboard shader, first frame
+- Ward 4: 3D ECS Core — Entity management, ComponentStore, Swap-and-Pop deletion, Transform + SplatMaterial
