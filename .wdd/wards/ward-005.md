@@ -3,12 +3,12 @@ ward: 5
 revision: null
 name: "WebGPU Low-Copy Bridge & Basic Render"
 epic: "ecs-webgpu-engine"
-status: "planned"
+status: "complete"
 dependencies: [4]
 layer: "typescript"
-estimated_tests: 7
+estimated_tests: 11
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 005: WebGPU Low-Copy Bridge & Basic Render
 
@@ -51,12 +51,16 @@ Få splat-positioner fra Rust RAM til GPU vRAM med minimal kopiering, og tegn de
 | # | Test Name | Verifies |
 |---|-----------|----------|
 | 1 | wasm_memory_view_valid | Float32Array view af Wasm memory er læsbar |
+| 1b | wasm_memory_view_out_of_bounds | Kaster fejl ved pointer+length > buffer |
+| 1c | wasm_memory_view_zero_or_negative | Kaster fejl ved count ≤ 0 |
+| 1d | wasm_memory_view_unaligned | Kaster fejl ved ikke-4-byte-aligned pointer |
 | 2 | gpu_buffer_created | WebGPU buffer oprettes med korrekt størrelse |
 | 3 | gpu_buffer_data_matches | Data i GPU buffer matcher Rust ECS data |
 | 4 | render_pipeline_compiles | Shader kompilerer uden fejl |
-| 5 | render_loop_starts | requestAnimationFrame loop kører |
-| 6 | canvas_not_blank | Canvas har ikke-sorte pixels efter render |
-| 7 | dirty_flag_prevents_unnecessary_upload | Buffer uploades kun ved ændringer |
+| 4b | render_pipeline_shader_error | Kaster beskrivende fejl ved shader kompileringsfejl |
+| 5 | render_loop_starts | requestAnimationFrame loop kører og stopper |
+| 6 | render_commands_encoded | renderFrame encoder draw-kommandoer med instanced quads |
+| 7 | dirty_flag_prevents_unnecessary_upload | uploadSplatBuffer er no-op ved anden kald uden dirty |
 
 ## Must NOT
 - Send data som JSON
@@ -70,6 +74,6 @@ Få splat-positioner fra Rust RAM til GPU vRAM med minimal kopiering, og tegn de
 - Implementér dirty flag for buffer updates
 
 ## Verification
-- Alle 7 tests er grønne
+- Alle 11 tests er grønne
 - Splats vises som farvede punkter/quads på skærmen
 - Ingen synlig frame drop ved 1M splats

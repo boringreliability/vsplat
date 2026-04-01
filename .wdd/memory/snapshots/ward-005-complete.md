@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 5 complete — 2026-04-01
+Ward 4 complete — 2026-03-31
 
 ## Current State
-Ward 1-5 complete. 50 tests (34 TS + 16 Rust). WebGPU low-copy bridge med Storage Buffer model, WGSL billboard shader, render loop, og dirty-flag optimering. Klar til Ward 6: Radix Sort Compute Shader.
+Ward 1-4 complete. 39 tests (23 TS + 16 Rust). ECS Core med generational entities, ComponentStore (Swap-and-Pop), batch spawn fra PLY data, og Visibility bitflags for soft-delete. Klar til Ward 5: WebGPU Bridge.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 1-5 complete. 50 tests (34 TS + 16 Rust). WebGPU low-copy bridge med Storag
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 6: Radix Sort Compute Shader — GPU-accelereret sortering for korrekt alpha-blending
+- Ward 5: WebGPU Low-Copy Bridge & Basic Render — Wasm→GPU memory mapping, billboard shader, first frame
