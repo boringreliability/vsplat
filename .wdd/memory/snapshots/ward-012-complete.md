@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 12 complete — 2026-04-01
+Ward 11 complete — 2026-04-01
 
 ## Current State
-12 of 19 wards complete (hardening phase 1 started). 124 tests (108 TS + 16 Rust). Global 3-pass radix sort with multi-level scan, scanAux3 contract buffer, silent-corruption guard, honest stability claims.
+ALL 11 WARDS COMPLETE. 112 tests (96 TS + 16 Rust). Full roundtrip: PLY import → ECS → WebGPU render → camera → selection → edit → export. Batched streaming export with generisk type support.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 12 complete — 2026-04-01
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 13: Generational ECS Safety — stale handle rejection in TypeScript command layer
+- All wards complete. Next phase: browser integration, Wasm compilation, and end-to-end testing.

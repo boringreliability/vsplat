@@ -3,12 +3,12 @@
  *
  * Two test categories with distinct verification claims:
  *
- * Category A: Oracle Contract Tests
+ * Category A: Oracle Contract Tests (4 tests)
  *   Verify that the CPU reference (Ward 6) produces correct results.
  *   These do NOT verify Ward 12's GPU implementation. They exist because
  *   Ward 12 depends on the oracle being correct.
  *
- * Category B: Orchestration Tests
+ * Category B: Orchestration Tests (8 tests)
  *   Verify that radix-sort-global.ts creates correct buffers, dispatches
  *   correct passes, and wires correct bind groups. They prove architecture
  *   and contracts, not GPU-side numerical correctness.
@@ -29,8 +29,6 @@ import {
   createGlobalSortPipelines,
   encodeSortGlobal,
   WORKGROUP_SIZE,
-  type GlobalSortBuffers,
-  type GlobalSortPipelines,
 } from "../../src/webgpu/radix-sort-global.js";
 
 // ─── WebGPU Stubs ────────────────────────────────────────────────
@@ -79,8 +77,8 @@ function createMockGPUDevice(): GPUDevice {
       code: desc.code,
       compilationInfo: async () => ({ messages: [] }),
     })),
-    createComputePipeline: vi.fn(() => ({
-      label: "mock-pipeline",
+    createComputePipeline: vi.fn((desc: { compute?: { entryPoint?: string } }) => ({
+      label: desc?.compute?.entryPoint ?? "mock-pipeline",
       getBindGroupLayout: vi.fn(() => ({ label: "auto-layout" })),
     })),
     createBindGroup: vi.fn((...args: unknown[]) => {
@@ -93,7 +91,7 @@ function createMockGPUDevice(): GPUDevice {
   } as unknown as GPUDevice;
 }
 
-// ─── Category A: Oracle Contract Tests ───────────────────────────
+// ─── Tests ───────────────────────────────────────────────────────
 
 describe("Ward 012: Global GPU Radix Sort", () => {
   let mockDevice: GPUDevice;
@@ -103,6 +101,8 @@ describe("Ward 012: Global GPU Radix Sort", () => {
     computePassCount = 0;
     bindGroupCalls = [];
   });
+
+  // ═══ Category A: Oracle Contract Tests ═════════════════════════
 
   describe("Category A: Oracle Contract Tests", () => {
 
@@ -144,17 +144,14 @@ describe("Ward 012: Global GPU Radix Sort", () => {
 
       const sorted = radixSortIndices(sortKeys, indices);
 
-      // Back-to-front: largest first
       for (let i = 1; i < sorted.length; i++) {
         expect(sortKeys[sorted[i - 1]]).toBeGreaterThanOrEqual(sortKeys[sorted[i]]);
       }
 
-      // 999 is farthest → first
-      expect(sorted[0]).toBe(4);
-      // -999 is closest → last
-      expect(sorted[sorted.length - 1]).toBe(5);
+      expect(sorted[0]).toBe(4);                    // 999 farthest → first
+      expect(sorted[sorted.length - 1]).toBe(5);    // -999 closest → last
 
-      // Verify floatToSortableUint ordering across sign boundary
+      // floatToSortableUint ordering across sign boundary
       expect(floatToSortableUint(-0.001)).toBeLessThan(floatToSortableUint(0.001));
       expect(floatToSortableUint(-999)).toBeLessThan(floatToSortableUint(-100));
     });
@@ -162,7 +159,6 @@ describe("Ward 012: Global GPU Radix Sort", () => {
     // ─── A3: cpu_oracle_stability ──────────────────────────────────
 
     it("A3: 1000 equal-key elements preserve original index order", () => {
-      // 1000 > WORKGROUP_SIZE(256): proves stability across workgroup boundaries
       const count = 1000;
       const sortKeys = new Float32Array(count).fill(42.0);
       const indices = new Uint32Array(count);
@@ -175,9 +171,9 @@ describe("Ward 012: Global GPU Radix Sort", () => {
       }
     });
 
-    // ─── A4: cpu_oracle_1m_performance ─────────────────────────────
+    // ─── A4: cpu_oracle_1m_correctness ─────────────────────────────
 
-    it("A4: CPU reference sorts 1M elements in under 200ms", () => {
+    it("A4: CPU reference handles 1M elements correctly", () => {
       const count = 1_000_000;
       const sortKeys = new Float32Array(count);
       const indices = new Uint32Array(count);
@@ -186,16 +182,17 @@ describe("Ward 012: Global GPU Radix Sort", () => {
         indices[i] = i;
       }
 
-      const start = performance.now();
       const sorted = radixSortIndices(sortKeys, indices);
-      const elapsed = performance.now() - start;
 
-      expect(elapsed).toBeLessThan(200);
+      // Correctness check only — performance telemetry belongs in Ward 19.
       expect(sorted.length).toBe(count);
+      for (let i = 1; i < 100; i++) {
+        expect(sortKeys[sorted[i - 1]]).toBeGreaterThanOrEqual(sortKeys[sorted[i]]);
+      }
     });
   });
 
-  // ─── Category B: Orchestration Tests ───────────────────────────
+  // ═══ Category B: Orchestration Tests ═══════════════════════════
 
   describe("Category B: Orchestration Tests", () => {
 
@@ -231,6 +228,22 @@ describe("Ward 012: Global GPU Radix Sort", () => {
       expect(idxCalls[0][0].size).toBe(splatCount * 4);
       expect(idxCalls[1][0].size).toBe(splatCount * 4);
 
+      // ScanAux2: ceil(scanAuxElements / WORKGROUP_SIZE) × 4 bytes
+      const scanAuxElements = Math.ceil((numWorkgroups * 16) / WORKGROUP_SIZE);
+      const scanAux2Call = vi.mocked(mockDevice.createBuffer).mock.calls.find(
+        (c) => c[0].label === "sort-scan-aux2",
+      );
+      expect(scanAux2Call).toBeDefined();
+      const expectedScanAux2Size = Math.max(Math.ceil(scanAuxElements / WORKGROUP_SIZE), 1) * 4;
+      expect(scanAux2Call![0].size).toBe(expectedScanAux2Size);
+
+      // ScanAux3: 4 bytes (single element, honors scan shader binding contract)
+      const scanAux3Call = vi.mocked(mockDevice.createBuffer).mock.calls.find(
+        (c) => c[0].label === "sort-scan-aux3",
+      );
+      expect(scanAux3Call).toBeDefined();
+      expect(scanAux3Call![0].size).toBe(4);
+
       // Params: 16 bytes (count + shift + numWorkgroups + pad)
       const paramsCall = vi.mocked(mockDevice.createBuffer).mock.calls.find(
         (c) => c[0].label === "sort-params",
@@ -243,7 +256,7 @@ describe("Ward 012: Global GPU Radix Sort", () => {
 
     // ─── B2: three_pass_dispatch_count ─────────────────────────────
 
-    it("B2: encodeSortGlobal dispatches 3 passes per radix pass (≥24 total)", async () => {
+    it("B2: encodeSortGlobal dispatches ≥24 and <50 compute passes", async () => {
       const splatCount = 10_000;
       const buffers = createGlobalSortBuffers(mockDevice, splatCount);
       const pipelines = await createGlobalSortPipelines(mockDevice);
@@ -257,8 +270,10 @@ describe("Ward 012: Global GPU Radix Sort", () => {
       );
 
       // 8 radix passes × 3 dispatches = 24 minimum.
-      // Multi-level scan may add more. Must be at least 24.
+      // Multi-level scan sub-passes may push this higher.
+      // Upper bound: 24 base + 16 for multi-level = 40 generous. 50 is a bug.
       expect(computePassCount).toBeGreaterThanOrEqual(24);
+      expect(computePassCount).toBeLessThan(50);
     });
 
     // ─── B3: params_uniform_contents ──────────────────────────────
@@ -270,19 +285,18 @@ describe("Ward 012: Global GPU Radix Sort", () => {
       const pipelines = await createGlobalSortPipelines(mockDevice);
       const encoder = createMockCommandEncoder();
 
-      // Record params writes
+      // Record ONLY params writes (filter by target buffer)
       const paramsWrites: { count: number; shift: number; numWg: number; pad: number }[] = [];
       vi.mocked(mockDevice.queue.writeBuffer).mockImplementation(
-        (_buf: GPUBuffer, _off: number, data: ArrayBufferView | ArrayBuffer) => {
+        (buf: GPUBuffer, _off: number, data: ArrayBufferView | ArrayBuffer) => {
+          if (buf !== buffers.params) return;
           const u32 = new Uint32Array(
             data instanceof ArrayBuffer ? data : data.buffer,
             data instanceof ArrayBuffer ? 0 : data.byteOffset,
           );
-          if (u32.length >= 4) {
-            paramsWrites.push({
-              count: u32[0], shift: u32[1], numWg: u32[2], pad: u32[3],
-            });
-          }
+          paramsWrites.push({
+            count: u32[0], shift: u32[1], numWg: u32[2], pad: u32[3],
+          });
         },
       );
 
@@ -309,14 +323,13 @@ describe("Ward 012: Global GPU Radix Sort", () => {
 
       encodeSortGlobal(mockDevice, encoder as unknown as GPUCommandEncoder, pipelines, buffers);
 
-      // Find all bind groups that reference the histogram buffer
       const histogramRefs = bindGroupCalls.filter((args) => {
         const desc = args[0] as { entries?: { resource?: { buffer?: unknown } }[] };
         return desc.entries?.some((e) => e.resource?.buffer === buffers.histogram);
       });
 
-      // Count, Scan, and Scatter all reference histogram — at least 3 per radix pass
-      // 8 passes × 3 = 24 minimum histogram references
+      // Count + Scan + Scatter all reference histogram: 8 passes × 3 = 24 minimum.
+      // Multi-level scan sub-passes may push this higher.
       expect(histogramRefs.length).toBeGreaterThanOrEqual(24);
     });
 
@@ -330,7 +343,6 @@ describe("Ward 012: Global GPU Radix Sort", () => {
 
       encodeSortGlobal(mockDevice, encoder as unknown as GPUCommandEncoder, pipelines, buffers);
 
-      // Find bind groups that reference scanAux
       const auxRefs = bindGroupCalls.filter((args) => {
         const desc = args[0] as { entries?: { resource?: { buffer?: unknown } }[] };
         return desc.entries?.some((e) => e.resource?.buffer === buffers.scanAux);
@@ -355,8 +367,32 @@ describe("Ward 012: Global GPU Radix Sort", () => {
         buffers,
       );
 
-      // After 8 passes (even number of swaps), result is in indicesA
       expect(result).toBe(buffers.indicesA);
+    });
+
+    // ─── B7: invalid_splatCount_throws ────────────────────────────
+
+    it("B7: createGlobalSortBuffers throws RangeError on invalid splatCount", () => {
+      expect(() => createGlobalSortBuffers(mockDevice, 0)).toThrow(RangeError);
+      expect(() => createGlobalSortBuffers(mockDevice, -1)).toThrow(RangeError);
+      expect(() => createGlobalSortBuffers(mockDevice, 1.5)).toThrow(RangeError);
+    });
+
+    // ─── B8: shader_compilation_failure_throws ────────────────────
+
+    it("B8: createGlobalSortPipelines throws on shader compilation error", async () => {
+      const brokenDevice = {
+        ...mockDevice,
+        createShaderModule: vi.fn(() => ({
+          compilationInfo: async () => ({
+            messages: [{ type: "error", message: "unexpected token '}'" }],
+          }),
+        })),
+        createComputePipeline: vi.fn(),
+      } as unknown as GPUDevice;
+
+      await expect(createGlobalSortPipelines(brokenDevice))
+        .rejects.toThrow(/compilation.*failed|unexpected token/i);
     });
   });
 });

@@ -3,12 +3,12 @@ ward: 12
 revision: 2
 name: "Global GPU Radix Sort"
 epic: "production-hardening"
-status: "red"
+status: "complete"
 dependencies: [6]
 layer: "wgsl"
-estimated_tests: 10
+estimated_tests: 12
 created: "2026-04-01"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 012: Global GPU Radix Sort
 
