@@ -1,20 +1,147 @@
 /// Ward 015: FFI boundary for Wasm Worker runtime.
 ///
-/// Tests (below) call FFI logic directly as Rust functions via `init_and_load` helper.
-/// The actual `#[wasm_bindgen]` annotated export functions (init, load_ply,
-/// get_positions_ptr/len, etc.) are deployment scope — they will wrap the same
-/// logic tested here. The annotations do not change Rust-side signatures.
+/// Actual FFI function bodies. On wasm32 targets, `#[wasm_bindgen]` is applied
+/// to export them to JavaScript. On native targets (cargo test), the attribute
+/// is stripped — functions are plain Rust, testable without a Wasm runtime.
+///
+/// Uses `thread_local!` with `RefCell<Option<World>>` for safe single-threaded
+/// access. Sound because the Worker is single-threaded (Web platform guarantee).
+
+use std::cell::RefCell;
+use crate::ply::{parse_header, PlyParser};
+use crate::ecs::world::World;
+
+// ─── Global State ────────────────────────────────────────────────
+
+thread_local! {
+    static WORLD: RefCell<Option<World>> = RefCell::new(None);
+}
+
+fn with_world<T>(default: T, f: impl FnOnce(&World) -> T) -> T {
+    WORLD.with(|cell| {
+        cell.borrow().as_ref().map_or(default, f)
+    })
+}
+
+fn with_world_mut<T>(f: impl FnOnce(&mut World) -> T) -> Result<T, String> {
+    WORLD.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        match borrow.as_mut() {
+            Some(world) => Ok(f(world)),
+            None => Err("Not initialized: call init() first".to_string()),
+        }
+    })
+}
+
+// ─── FFI Functions ───────────────────────────────────────────────
+
+/// Initialize an empty World. Must be called before load_ply.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn init() {
+    WORLD.with(|cell| {
+        *cell.borrow_mut() = Some(World::new());
+    });
+}
+
+/// Parse a PLY file and populate the World.
+/// Returns the number of splats loaded in THIS call.
+/// Returns Err on invalid PLY data; World remains usable after error.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn load_ply(data: &[u8]) -> Result<usize, String> {
+    // Verify world is initialized before doing any work
+    WORLD.with(|cell| {
+        if cell.borrow().is_none() {
+            return Err("Not initialized: call init() first".to_string());
+        }
+        Ok(())
+    })?;
+
+    let header = parse_header(data)?;
+    let binary = &data[header.data_offset..];
+    let parser = PlyParser::new(header);
+    let splats = parser.parse_all(binary)?;
+    let count = splats.count;
+    with_world_mut(|world| {
+        world.batch_spawn_splats(&splats);
+    })?;
+    Ok(count)
+}
+
+/// Total number of splats in the World.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_splat_count() -> usize {
+    with_world(0, |w| w.splat_count())
+}
+
+/// SH dimension for the loaded scene.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_sh_dim() -> usize {
+    with_world(0, |w| w.sh_dim)
+}
+
+// ─── Pointer/Length Getters ──────────────────────────────────────
+// On wasm32, pointers are 32-bit and returned as u32.
+// On native 64-bit (cargo test), pointers are 64-bit — we use usize.
+// The wasm_bindgen exports use u32; tests use the native pointer width.
+
+/// Get raw pointer to positions buffer. Returns byte offset (usize).
+/// On wasm32 this fits in u32. JS divides by 4 for Float32Array index.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_positions_ptr() -> usize {
+    with_world(0, |w| w.flat_positions.as_ptr() as usize)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_positions_len() -> usize {
+    with_world(0, |w| w.flat_positions.len())
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_rotations_ptr() -> usize {
+    with_world(0, |w| w.flat_rotations.as_ptr() as usize)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_rotations_len() -> usize {
+    with_world(0, |w| w.flat_rotations.len())
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_scales_ptr() -> usize {
+    with_world(0, |w| w.flat_scales.as_ptr() as usize)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_scales_len() -> usize {
+    with_world(0, |w| w.flat_scales.len())
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_opacities_ptr() -> usize {
+    with_world(0, |w| w.opacities.as_ptr() as usize)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_opacities_len() -> usize {
+    with_world(0, |w| w.opacities.len())
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_sh_ptr() -> usize {
+    with_world(0, |w| w.sh_coefficients.as_ptr() as usize)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_sh_len() -> usize {
+    with_world(0, |w| w.sh_coefficients.len())
+}
+
+// ─── Tests ───────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
-    use crate::ply::{parse_header, PlyParser};
-    use crate::ecs::world::World;
+    use super::*;
 
-    // ─── Test Helpers ────────────────────────────────────────────
-
-    /// Build a minimal valid binary PLY with `count` vertices.
-    /// Properties: x(f32), y(f32), z(f32), opacity(f32),
-    ///             rot_0..3(f32), scale_0..2(f32), f_dc_0..2(f32)
     fn make_test_ply(count: usize) -> Vec<u8> {
         let header = format!(
             "ply\n\
@@ -36,133 +163,120 @@ mod tests {
              property float f_dc_2\n\
              end_header\n"
         );
-
-        let stride = 14 * 4; // 14 float properties × 4 bytes
+        let stride = 14 * 4;
         let header_len = header.len();
         let mut bytes = header.into_bytes();
         for i in 0..count {
             let v = i as f32;
-            // x, y, z
             bytes.extend_from_slice(&v.to_le_bytes());
             bytes.extend_from_slice(&(v + 0.1).to_le_bytes());
             bytes.extend_from_slice(&(v + 0.2).to_le_bytes());
-            // opacity
             bytes.extend_from_slice(&0.9f32.to_le_bytes());
-            // rot_0..3 (identity quaternion)
             bytes.extend_from_slice(&1.0f32.to_le_bytes());
             bytes.extend_from_slice(&0.0f32.to_le_bytes());
             bytes.extend_from_slice(&0.0f32.to_le_bytes());
             bytes.extend_from_slice(&0.0f32.to_le_bytes());
-            // scale_0..2
             bytes.extend_from_slice(&1.0f32.to_le_bytes());
             bytes.extend_from_slice(&1.0f32.to_le_bytes());
             bytes.extend_from_slice(&1.0f32.to_le_bytes());
-            // f_dc_0..2
             bytes.extend_from_slice(&0.5f32.to_le_bytes());
             bytes.extend_from_slice(&0.5f32.to_le_bytes());
             bytes.extend_from_slice(&0.5f32.to_le_bytes());
         }
-
         assert_eq!(bytes.len(), header_len + count * stride);
         bytes
     }
 
-    /// Simulate FFI init + load_ply as pure Rust (no wasm-bindgen needed).
-    /// Returns (World, loaded_count).
-    fn init_and_load(ply_bytes: &[u8]) -> Result<(World, usize), String> {
-        let mut world = World::new();
-        let header = parse_header(ply_bytes)?;
-        let binary = &ply_bytes[header.data_offset..];
-        let parser = PlyParser::new(header);
-        let splats = parser.parse_all(binary)?;
-        let count = splats.count;
-        world.batch_spawn_splats(&splats);
-        Ok((world, count))
-    }
-
-    // ─── A1: ffi_init_creates_world ──────────────────────────────
-
     #[test]
     fn ffi_init_creates_world() {
-        let world = World::new();
-
-        // Fresh world has zero splats
-        assert_eq!(world.opacities.len(), 0);
-        assert_eq!(world.sh_coefficients.len(), 0);
-        assert_eq!(world.flat_positions.len(), 0);
-        assert_eq!(world.flat_rotations.len(), 0);
-        assert_eq!(world.flat_scales.len(), 0);
-        assert_eq!(world.sh_dim, 0);
+        init();
+        assert_eq!(get_splat_count(), 0);
+        assert_eq!(get_positions_len(), 0);
+        assert_eq!(get_rotations_len(), 0);
+        assert_eq!(get_scales_len(), 0);
+        assert_eq!(get_opacities_len(), 0);
+        assert_eq!(get_sh_len(), 0);
+        assert_eq!(get_sh_dim(), 0);
     }
-
-    // ─── A2: ffi_load_ply_populates_world ────────────────────────
 
     #[test]
     fn ffi_load_ply_populates_world() {
+        init();
         let ply = make_test_ply(100);
-        let (world, count) = init_and_load(&ply).unwrap();
-
+        let count = load_ply(&ply).unwrap();
         assert_eq!(count, 100);
+        assert_eq!(get_splat_count(), 100);
+        assert_eq!(get_positions_len(), 300);
+        assert_eq!(get_rotations_len(), 400);
+        assert_eq!(get_scales_len(), 300);
+        assert_eq!(get_opacities_len(), 100);
+        assert_eq!(get_sh_len(), 100 * get_sh_dim());
 
-        // Flat buffer lengths match expected layout
-        assert_eq!(world.flat_positions.len(), 100 * 3);
-        assert_eq!(world.flat_rotations.len(), 100 * 4);
-        assert_eq!(world.flat_scales.len(), 100 * 3);
-        assert_eq!(world.opacities.len(), 100);
-        assert_eq!(world.sh_coefficients.len(), 100 * world.sh_dim);
-
-        // Spot-check first splat position
-        assert!((world.flat_positions[0] - 0.0).abs() < 1e-6);
-        assert!((world.flat_positions[1] - 0.1).abs() < 1e-6);
-        assert!((world.flat_positions[2] - 0.2).abs() < 1e-6);
+        let ptr = get_positions_ptr() as *const f32;
+        assert!(!ptr.is_null());
+        unsafe {
+            assert!((*ptr - 0.0).abs() < 1e-6);
+            assert!((*ptr.add(1) - 0.1).abs() < 1e-6);
+            assert!((*ptr.add(2) - 0.2).abs() < 1e-6);
+        }
     }
-
-    // ─── A3: ffi_load_ply_invalid_returns_error ──────────────────
 
     #[test]
     fn ffi_load_ply_invalid_returns_error() {
-        let garbage = b"this is not a ply file at all";
-
-        let result = init_and_load(garbage);
+        init();
+        let result = load_ply(b"this is not a ply file");
         assert!(result.is_err());
+        assert_eq!(get_splat_count(), 0);
 
-        // World remains usable after error — can still load a valid file
         let ply = make_test_ply(10);
-        let (world, count) = init_and_load(&ply).unwrap();
+        let count = load_ply(&ply).unwrap();
         assert_eq!(count, 10);
-        assert_eq!(world.flat_positions.len(), 30);
+        assert_eq!(get_splat_count(), 10);
+        assert_eq!(get_positions_len(), 30);
     }
 
-    // ─── A4: ffi_memory_pointers_valid ───────────────────────────
+    #[test]
+    fn ffi_load_ply_without_init_returns_not_initialized() {
+        // Reset world to None (thread_local may have state from other tests)
+        WORLD.with(|cell| { *cell.borrow_mut() = None; });
+
+        let ply = make_test_ply(10);
+        let result = load_ply(&ply);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Not initialized"));
+    }
 
     #[test]
     fn ffi_memory_pointers_valid() {
+        init();
         let ply = make_test_ply(50);
-        let (world, _) = init_and_load(&ply).unwrap();
+        load_ply(&ply).unwrap();
 
-        // Pointers are non-null and point to valid data
-        let pos_ptr = world.flat_positions.as_ptr();
-        let pos_len = world.flat_positions.len();
+        let pos_ptr = get_positions_ptr() as *const f32;
         assert!(!pos_ptr.is_null());
-        assert_eq!(pos_len, 150); // 50 * 3
+        assert_eq!(get_positions_len(), 150);
 
-        // Values at pointer match expected data
-        unsafe {
-            assert!((*pos_ptr - 0.0).abs() < 1e-6);           // first x
-            assert!((*pos_ptr.add(1) - 0.1).abs() < 1e-6);   // first y
-            assert!((*pos_ptr.add(2) - 0.2).abs() < 1e-6);   // first z
-        }
+        let rot_ptr = get_rotations_ptr() as *const f32;
+        assert!(!rot_ptr.is_null());
+        assert_eq!(get_rotations_len(), 200);
 
-        // SH pointer
-        let sh_ptr = world.sh_coefficients.as_ptr();
-        assert!(!sh_ptr.is_null());
-        assert_eq!(world.sh_coefficients.len(), 50 * world.sh_dim);
+        let sc_ptr = get_scales_ptr() as *const f32;
+        assert!(!sc_ptr.is_null());
+        assert_eq!(get_scales_len(), 150);
 
-        // Opacity pointer
-        let op_ptr = world.opacities.as_ptr();
+        let op_ptr = get_opacities_ptr() as *const f32;
         assert!(!op_ptr.is_null());
+        assert_eq!(get_opacities_len(), 50);
+
+        let sh_ptr = get_sh_ptr() as *const f32;
+        assert!(!sh_ptr.is_null());
+        assert_eq!(get_sh_len(), 50 * get_sh_dim());
+
         unsafe {
+            assert!((*pos_ptr - 0.0).abs() < 1e-6);
+            assert!((*pos_ptr.add(1) - 0.1).abs() < 1e-6);
             assert!((*op_ptr - 0.9).abs() < 1e-6);
+            assert!((*rot_ptr - 1.0).abs() < 1e-6);
         }
     }
 }
