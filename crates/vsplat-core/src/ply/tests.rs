@@ -322,4 +322,93 @@ mod tests {
         let last = *progress_values.last().unwrap();
         assert!((last - 1.0).abs() < 1e-6, "Final progress should be 1.0, got {last}");
     }
+
+    // ═══ Ward 016: Import Truncation Tests ═══════════════════════════
+
+    // ─── A1a: parse_all rejects truncated binary ─────────────────────
+
+    #[test]
+    fn truncated_binary_parse_all_returns_error() {
+        let props = standard_properties();
+        let count = 1000;
+        let vertex_data = make_vertex_data(count);
+        let ply_bytes = make_ply_bytes(count, &props, &vertex_data);
+
+        let header = parse_header(&ply_bytes).unwrap();
+        let full_binary = &ply_bytes[header.data_offset..];
+
+        // Truncate at 50% of binary
+        let truncated = &full_binary[..full_binary.len() / 2];
+
+        let parser = PlyParser::new(header);
+        let result = parser.parse_all(truncated);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("mismatch"), "Error should mention size mismatch: {err}");
+    }
+
+    // ─── A1b: parse_chunked rejects truncated stream ─────────────────
+
+    #[test]
+    fn truncated_binary_parse_chunked_returns_error() {
+        let props = standard_properties();
+        let count = 1000;
+        let vertex_data = make_vertex_data(count);
+        let ply_bytes = make_ply_bytes(count, &props, &vertex_data);
+
+        let header = parse_header(&ply_bytes).unwrap();
+        let full_binary = &ply_bytes[header.data_offset..];
+
+        // Truncate at 60% — not aligned to stride, creates junk remainder
+        let truncated_size = full_binary.len() * 60 / 100;
+        let truncated: Vec<u8> = full_binary[..truncated_size].to_vec();
+
+        let parser = PlyParser::new(header);
+        let chunk_size = 4096;
+
+        let result = parser.parse_chunked(
+            truncated_size,
+            chunk_size,
+            |offset, len| {
+                let end = (offset + len).min(truncated.len());
+                truncated[offset..end].to_vec()
+            },
+            |_| {},
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // Should mention either junk bytes or vertex count mismatch
+        assert!(
+            err.contains("junk") || err.contains("mismatch"),
+            "Error should indicate truncation: {err}"
+        );
+    }
+
+    // ─── A2: parse_all capacity matches length (no over-alloc) ───────
+
+    #[test]
+    fn parse_all_no_overallocation() {
+        let props = standard_properties();
+        let count = 10_000;
+        let vertex_data = make_vertex_data(count);
+        let ply_bytes = make_ply_bytes(count, &props, &vertex_data);
+
+        let header = parse_header(&ply_bytes).unwrap();
+        let binary = &ply_bytes[header.data_offset..];
+        let parser = PlyParser::new(header);
+        let splats = parser.parse_all(binary).unwrap();
+
+        // Capacity should be exactly what was pre-allocated (count × components)
+        // Ratio capacity/length should be < 1.1 (no 2× over-allocation)
+        let pos_ratio = splats.positions.capacity() as f64 / splats.positions.len() as f64;
+        let rot_ratio = splats.rotations.capacity() as f64 / splats.rotations.len() as f64;
+        let sc_ratio = splats.scales.capacity() as f64 / splats.scales.len() as f64;
+        let op_ratio = splats.opacities.capacity() as f64 / splats.opacities.len() as f64;
+
+        assert!(pos_ratio < 1.1, "positions over-allocated: ratio {pos_ratio}");
+        assert!(rot_ratio < 1.1, "rotations over-allocated: ratio {rot_ratio}");
+        assert!(sc_ratio < 1.1, "scales over-allocated: ratio {sc_ratio}");
+        assert!(op_ratio < 1.1, "opacities over-allocated: ratio {op_ratio}");
+    }
 }

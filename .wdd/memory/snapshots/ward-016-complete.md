@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 16 complete — 2026-04-02
+Ward 15 complete — 2026-04-02
 
 ## Current State
-16 of 19 wards complete (hardening phase 2: 1/2). 170 tests (141 TS + 29 Rust). Verified: import truncation handling, export batch reuse, cancellation propagation, allocation efficiency, 50K roundtrip integrity.
+15 of 19 wards complete (hardening phase 1: 4/4). 162 tests (137 TS + 25 Rust). Production Worker Runtime: flat GPU-ready buffers in World, bridge with init handshake/timeout/loadPly/getBuffers/error propagation, FFI test coverage.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 16 complete — 2026-04-02
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 17: Runtime Resilience & Fallbacks — capability gate, VsplatError types, graceful degradation
+- Ward 16: True Streaming I/O — bounded import/export, truncation handling, memory budget
