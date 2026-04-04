@@ -5,6 +5,10 @@
 /// indexed by entity slot index, NOT in per-entity ComponentStores. This eliminates
 /// per-entity Vec<f32> heap allocations and enables direct GPU upload.
 ///
+/// Ward 15 adds flat_positions, flat_rotations, flat_scales as GPU-ready parallel
+/// copies of the Transform ComponentStore data. These are populated via
+/// extend_from_slice during batch spawn and exposed to JS via FFI pointers.
+///
 /// Index stability contract: The 1:1 mapping between entity slot index and buffer
 /// position is valid because deletion is soft-delete only (visibility flags).
 /// Any future compaction must update this contract explicitly.
@@ -23,11 +27,18 @@ pub struct World {
     /// Flat opacity buffer: opacities[entity_index]. One f32 per entity.
     pub opacities: Vec<f32>,
     /// Flat SH coefficient buffer: sh_coefficients[entity_index * sh_dim + coeff_index].
-    /// Contiguous, cache-friendly, GPU-uploadable.
     pub sh_coefficients: Vec<f32>,
     /// SH dimension (uniform per scene): 3, 12, 27, or 48 for degrees 0-3.
-    /// Initialized from first batch. Subsequent batches must match.
     pub sh_dim: usize,
+
+    // Ward 15: GPU-ready flat buffers (parallel to ComponentStore<Transform>).
+    // Populated by extend_from_slice during batch spawn. Exposed via FFI pointers.
+    /// Flat positions: [x0,y0,z0, x1,y1,z1, ...]. Length = entity_count * 3.
+    pub flat_positions: Vec<f32>,
+    /// Flat rotations: [w0,x0,y0,z0, w1,x1,y1,z1, ...]. Length = entity_count * 4.
+    pub flat_rotations: Vec<f32>,
+    /// Flat scales: [sx0,sy0,sz0, sx1,sy1,sz1, ...]. Length = entity_count * 3.
+    pub flat_scales: Vec<f32>,
 }
 
 impl World {
@@ -38,13 +49,16 @@ impl World {
             visibility: ComponentStore::new(),
             opacities: Vec::new(),
             sh_coefficients: Vec::new(),
-            sh_dim: 0, // initialized from first batch
+            sh_dim: 0,
+            flat_positions: Vec::new(),
+            flat_rotations: Vec::new(),
+            flat_scales: Vec::new(),
         }
     }
 
     /// Batch-spawn entities from parsed PLY data.
     ///
-    /// Uses bulk extend_from_slice for opacity and SH data — zero per-entity allocation.
+    /// Uses bulk extend_from_slice for all flat buffers — zero per-entity allocation.
     /// Panics if sh_dim mismatches an already-initialized world.
     pub fn batch_spawn_splats(&mut self, data: &SplatData) -> Vec<Entity> {
         let count = data.count;
@@ -64,6 +78,9 @@ impl World {
         self.visibility.reserve(count);
         self.opacities.reserve(count);
         self.sh_coefficients.reserve(count * self.sh_dim);
+        self.flat_positions.reserve(count * 3);
+        self.flat_rotations.reserve(count * 4);
+        self.flat_scales.reserve(count * 3);
 
         let entities = self.entities.batch_spawn(count);
 
@@ -95,10 +112,18 @@ impl World {
             self.visibility.insert(entity, Visibility::default());
         }
 
-        // Opacity + SH: bulk copy from SplatData (zero per-entity allocation)
+        // All flat buffers: bulk copy from SplatData (zero per-entity allocation)
         self.opacities.extend_from_slice(&data.opacities);
         self.sh_coefficients.extend_from_slice(&data.sh_coefficients);
+        self.flat_positions.extend_from_slice(&data.positions);
+        self.flat_rotations.extend_from_slice(&data.rotations);
+        self.flat_scales.extend_from_slice(&data.scales);
 
         entities
+    }
+
+    /// Total number of splats in the world.
+    pub fn splat_count(&self) -> usize {
+        self.opacities.len()
     }
 }

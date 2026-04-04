@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 15 complete — 2026-04-02
+Ward 14 complete — 2026-04-02
 
 ## Current State
-15 of 19 wards complete (hardening phase 1: 4/4). 162 tests (137 TS + 25 Rust). Production Worker Runtime: flat GPU-ready buffers in World, bridge with init handshake/timeout/loadPly/getBuffers/error propagation, FFI test coverage.
+14 of 19 wards complete (hardening phase 1: 3/4). 150 tests (129 TS + 21 Rust). Flat SoA material buffers: per-entity Vec<f32> eliminated, bulk extend_from_slice, GPU SH+opacity buffers with dirty-flag and length guards.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 15 complete — 2026-04-02
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 16: True Streaming I/O — bounded import/export, truncation handling, memory budget
+- Ward 15: Production Worker Runtime — real Wasm bootstrap, handshake, cancellation

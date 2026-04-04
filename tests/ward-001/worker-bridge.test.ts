@@ -52,9 +52,8 @@ describe("Ward 001: Worker Bridge", () => {
     it("should receive 'pong' when sending 'ping'", async () => {
       // Given: a worker bridge with a responsive worker
       const mockWorker = new MockWorker((msg) => {
-        if (msg.type === "ping") {
-          return { type: "pong" };
-        }
+        if (msg.type === "init") return { type: "ready" };
+        if (msg.type === "ping") return { type: "pong" };
         return null;
       });
 
@@ -72,6 +71,7 @@ describe("Ward 001: Worker Bridge", () => {
     it("should resolve within 10ms (performance check)", async () => {
       // Given: a worker that responds immediately
       const mockWorker = new MockWorker((msg) => {
+        if (msg.type === "init") return { type: "ready" };
         if (msg.type === "ping") return { type: "pong" };
         return null;
       });
@@ -105,6 +105,7 @@ describe("Ward 001: Worker Bridge", () => {
     it("should set ready=false after terminate()", async () => {
       // Given: a working bridge
       const mockWorker = new MockWorker((msg) => {
+        if (msg.type === "init") return { type: "ready" };
         if (msg.type === "ping") return { type: "pong" };
         return null;
       });
@@ -122,6 +123,7 @@ describe("Ward 001: Worker Bridge", () => {
     it("should reject send() after terminate()", async () => {
       // Given: a terminated bridge
       const mockWorker = new MockWorker((msg) => {
+        if (msg.type === "init") return { type: "ready" };
         if (msg.type === "ping") return { type: "pong" };
         return null;
       });
