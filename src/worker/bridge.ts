@@ -2,10 +2,12 @@
  * JS ↔ Wasm Worker message bridge.
  * Typed message protocol for communication between main thread and Rust Worker.
  *
- * Ward 15: Updated with init handshake timeout, loadPly with transfer,
- * getBuffers with Float32Array wrapping, and error propagation.
- * Backward compatible with Ward 1 ping/pong contract.
+ * Ward 15: Init handshake, loadPly, getBuffers, error propagation.
+ * Ward 17: Per-operation timeouts, structured config, late reply handling.
+ *          All errors are VsplatError (structured, not raw Error).
  */
+
+import { createVsplatError } from "../errors/vsplat-error.js";
 
 export type WorkerMessageType =
   | "ping" | "pong"
@@ -29,6 +31,13 @@ export interface SplatBuffers {
   splatCount: number;
 }
 
+export interface BridgeTimeouts {
+  init: number;
+  loadPly: number;
+  getBuffers: number;
+  ping: number;
+}
+
 export interface WorkerBridge {
   send(msg: WorkerMessage): Promise<WorkerMessage>;
   ping(): Promise<"pong">;
@@ -39,51 +48,106 @@ export interface WorkerBridge {
 }
 
 export interface WorkerBridgeOptions {
+  /** Injected Worker (for testing). If omitted, creates real Worker from URL. */
+  worker?: Worker;
+  /** Per-operation timeouts in milliseconds. */
+  timeouts?: Partial<BridgeTimeouts>;
+
+  // Ward 1 legacy compat (deprecated — use worker + timeouts instead)
   _testWorker?: Worker;
   _initTimeoutMs?: number;
+  _operationTimeoutMs?: number;
 }
 
-const DEFAULT_INIT_TIMEOUT = 10_000;
+const DEFAULT_TIMEOUTS: BridgeTimeouts = {
+  init: 10_000,
+  loadPly: 30_000,
+  getBuffers: 10_000,
+  ping: 5_000,
+};
 
 export async function createWorkerBridge(
   wasmUrl: string | URL,
   options?: WorkerBridgeOptions,
 ): Promise<WorkerBridge> {
-  const worker = options?._testWorker ?? createWorker(wasmUrl);
-  const initTimeout = options?._initTimeoutMs ?? DEFAULT_INIT_TIMEOUT;
+  // Resolve config: new style takes precedence over legacy
+  const worker = options?.worker ?? options?._testWorker ?? createWorker(wasmUrl);
+  const timeouts: BridgeTimeouts = {
+    init: options?.timeouts?.init ?? options?._initTimeoutMs ?? DEFAULT_TIMEOUTS.init,
+    loadPly: options?.timeouts?.loadPly ?? options?._operationTimeoutMs ?? DEFAULT_TIMEOUTS.loadPly,
+    getBuffers: options?.timeouts?.getBuffers ?? options?._operationTimeoutMs ?? DEFAULT_TIMEOUTS.getBuffers,
+    ping: options?.timeouts?.ping ?? options?._operationTimeoutMs ?? DEFAULT_TIMEOUTS.ping,
+  };
 
   let _ready = false;
   const queue: Array<{
     resolve: (msg: WorkerMessage) => void;
     reject: (err: Error) => void;
+    timer?: ReturnType<typeof setTimeout>;
   }> = [];
 
   worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
     const entry = queue.shift();
-    if (entry) {
-      // Error responses from worker reject the pending promise
-      if (event.data.type === "error") {
-        entry.reject(new Error(String(event.data.message ?? "Worker error")));
-      } else {
-        entry.resolve(event.data);
-      }
+    if (!entry) return; // late reply after timeout — silently dropped
+    if (entry.timer) clearTimeout(entry.timer);
+    if (event.data.type === "error") {
+      entry.reject(createVsplatError("LOAD_FAILED", { details: String(event.data.message ?? "Worker error") }));
+    } else {
+      entry.resolve(event.data);
     }
   };
 
   worker.onerror = (event: ErrorEvent) => {
+    _ready = false;
     for (const entry of queue) {
-      entry.reject(new Error(event.message ?? "Worker error"));
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.reject(createVsplatError("WORKER_CRASHED", { details: event.message ?? "Worker crashed" }));
     }
     queue.length = 0;
   };
 
+  // Helper: send with timeout
+  function sendWithTimeout(msg: WorkerMessage, timeoutMs: number, opName: string): Promise<WorkerMessage> {
+    if (!_ready) {
+      return Promise.reject(createVsplatError("BRIDGE_TIMEOUT", { details: "Worker terminated" }));
+    }
+    return new Promise<WorkerMessage>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Remove this entry from queue (late reply will be dropped by onmessage)
+        const idx = queue.findIndex((e) => e.timer === timer);
+        if (idx !== -1) queue.splice(idx, 1);
+        reject(createVsplatError("BRIDGE_TIMEOUT", { details: `${opName} did not respond within ${timeoutMs}ms` }));
+      }, timeoutMs);
+
+      queue.push({ resolve, reject, timer });
+      worker.postMessage(msg);
+    });
+  }
+
+  // Helper: send with timeout + transfer
+  function sendWithTransfer(
+    msg: WorkerMessage, transfer: Transferable[], timeoutMs: number, opName: string,
+  ): Promise<WorkerMessage> {
+    if (!_ready) {
+      return Promise.reject(createVsplatError("BRIDGE_TIMEOUT", { details: "Worker terminated" }));
+    }
+    return new Promise<WorkerMessage>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = queue.findIndex((e) => e.timer === timer);
+        if (idx !== -1) queue.splice(idx, 1);
+        reject(createVsplatError("BRIDGE_TIMEOUT", { details: `${opName} did not respond within ${timeoutMs}ms` }));
+      }, timeoutMs);
+
+      queue.push({ resolve, reject, timer });
+      worker.postMessage(msg, transfer as Transferable[]);
+    });
+  }
+
   // Init handshake with timeout
-  const initPromise = new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(
-        `Worker init timeout after ${initTimeout}ms for ${wasmUrl}`,
-      ));
-    }, initTimeout);
+      reject(createVsplatError("BRIDGE_TIMEOUT", { details: `init did not respond within ${timeouts.init}ms for ${wasmUrl}` }));
+    }, timeouts.init);
 
     queue.push({
       resolve: (msg) => {
@@ -92,19 +156,18 @@ export async function createWorkerBridge(
           _ready = true;
           resolve();
         } else {
-          reject(new Error(`Expected 'ready', got '${msg.type}'`));
+          reject(createVsplatError("BRIDGE_TIMEOUT", { details: `Expected 'ready', got '${msg.type}'` }));
         }
       },
       reject: (err) => {
         clearTimeout(timer);
         reject(err);
       },
+      timer,
     });
 
     worker.postMessage({ type: "init", wasmUrl: String(wasmUrl) });
   });
-
-  await initPromise;
 
   const bridge: WorkerBridge = {
     get ready() {
@@ -112,65 +175,42 @@ export async function createWorkerBridge(
     },
 
     async send(msg: WorkerMessage): Promise<WorkerMessage> {
-      if (!_ready) {
-        throw new Error("Worker terminated");
-      }
-      return new Promise<WorkerMessage>((resolve, reject) => {
-        queue.push({ resolve, reject });
-        worker.postMessage(msg);
-      });
+      return sendWithTimeout(msg, timeouts.ping, msg.type);
     },
 
     async ping(): Promise<"pong"> {
-      const response = await this.send({ type: "ping" });
+      const response = await sendWithTimeout({ type: "ping" }, timeouts.ping, "ping");
       if (response.type !== "pong") {
-        throw new Error(`Expected pong, got ${response.type}`);
+        throw createVsplatError("BRIDGE_TIMEOUT", { details: `Expected pong, got ${response.type}` });
       }
       return "pong";
     },
 
     async loadPly(data: ArrayBuffer): Promise<{ splatCount: number }> {
-      if (!_ready) {
-        throw new Error("Worker terminated");
-      }
-      return new Promise<{ splatCount: number }>((resolve, reject) => {
-        queue.push({
-          resolve: (msg) => {
-            resolve({ splatCount: msg.splatCount as number });
-          },
-          reject,
-        });
-        worker.postMessage({ type: "load", plyData: data }, [data] as Transferable[]);
-      });
+      const response = await sendWithTransfer(
+        { type: "load", plyData: data }, [data], timeouts.loadPly, "loadPly",
+      );
+      return { splatCount: response.splatCount as number };
     },
 
     async getBuffers(): Promise<SplatBuffers> {
-      if (!_ready) {
-        throw new Error("Worker terminated");
-      }
-      return new Promise<SplatBuffers>((resolve, reject) => {
-        queue.push({
-          resolve: (msg) => {
-            resolve({
-              positions: new Float32Array(msg.positions as ArrayBuffer),
-              rotations: new Float32Array(msg.rotations as ArrayBuffer),
-              scales: new Float32Array(msg.scales as ArrayBuffer),
-              opacities: new Float32Array(msg.opacities as ArrayBuffer),
-              sh: new Float32Array(msg.sh as ArrayBuffer),
-              shDim: msg.shDim as number,
-              splatCount: msg.splatCount as number,
-            });
-          },
-          reject,
-        });
-        worker.postMessage({ type: "query-buffers" });
-      });
+      const msg = await sendWithTimeout({ type: "query-buffers" }, timeouts.getBuffers, "getBuffers");
+      return {
+        positions: new Float32Array(msg.positions as ArrayBuffer),
+        rotations: new Float32Array(msg.rotations as ArrayBuffer),
+        scales: new Float32Array(msg.scales as ArrayBuffer),
+        opacities: new Float32Array(msg.opacities as ArrayBuffer),
+        sh: new Float32Array(msg.sh as ArrayBuffer),
+        shDim: msg.shDim as number,
+        splatCount: msg.splatCount as number,
+      };
     },
 
     terminate(): void {
       _ready = false;
       for (const entry of queue) {
-        entry.reject(new Error("Worker terminated"));
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.reject(createVsplatError("BRIDGE_TIMEOUT", { details: "Worker terminated" }));
       }
       queue.length = 0;
       worker.terminate();
@@ -181,9 +221,6 @@ export async function createWorkerBridge(
 }
 
 function createWorker(wasmUrl: string | URL): Worker {
-  // Ward 15: real Worker instantiation (wasm-worker.ts bundled as Worker script)
-  // For now, the Worker URL is derived from the Wasm URL's base path.
-  // In production, this will point to the bundled wasm-worker.js.
   const workerUrl = new URL("./wasm-worker.js", wasmUrl);
   return new Worker(workerUrl, { type: "module" });
 }

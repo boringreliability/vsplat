@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-16 of 19 Wards complete · 156 estimated tests · 0 blocked
+17 of 19 Wards complete · 158 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -22,9 +22,9 @@
 | 141 | Unified SoA Material Core | 11 | ✅ Complete | 2026-04-01 |
 | 152 | Production Worker Runtime | 12 | ✅ Complete | 2026-04-04 |
 | 161 | True Streaming I/O | 7 | ✅ Complete | 2026-04-04 |
-| 17 | Runtime Resilience & Fallbacks | 7 | 📋 Planned | - |
+| 172 | Runtime Resilience & Fallbacks | 9 | ✅ Complete | 2026-04-04 |
 | 18 | vsplat.io Deployment Hardening | 6 | 📋 Planned | - |
 | 19 | Observability & Failure Forensics | 6 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 156
+- Estimated total: 158

@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 17 complete — 2026-04-02
+Ward 16 complete — 2026-04-02
 
 ## Current State
-17 of 19 wards complete (hardening phase 2: 2/2). 180 tests (151 TS + 29 Rust). VsplatError type system, capability gate, memory estimation, shader compilation check, per-operation bridge timeouts, Worker crash handling. All bridge errors are structured VsplatError.
+16 of 19 wards complete (hardening phase 2: 1/2). 170 tests (141 TS + 29 Rust). Verified: import truncation handling, export batch reuse, cancellation propagation, allocation efficiency, 50K roundtrip integrity.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 17 complete — 2026-04-02
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 18: vsplat.io Deployment Hardening — COOP/COEP, CSP, Wasm MIME, asset hashing
+- Ward 17: Runtime Resilience & Fallbacks — capability gate, VsplatError types, graceful degradation
