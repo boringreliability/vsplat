@@ -14,6 +14,7 @@ export type WorkerMessageType =
   | "init" | "ready"
   | "load" | "loaded"
   | "query-buffers" | "buffers"
+  | "sort" | "sorted"
   | "error";
 
 export interface WorkerMessage {
@@ -43,6 +44,7 @@ export interface WorkerBridge {
   ping(): Promise<"pong">;
   loadPly(data: ArrayBuffer): Promise<{ splatCount: number }>;
   getBuffers(): Promise<SplatBuffers>;
+  sortByDepth(camX: number, camY: number, camZ: number, dirX: number, dirY: number, dirZ: number): Promise<Uint32Array>;
   terminate(): void;
   readonly ready: boolean;
 }
@@ -204,6 +206,13 @@ export async function createWorkerBridge(
         shDim: msg.shDim as number,
         splatCount: msg.splatCount as number,
       };
+    },
+
+    async sortByDepth(camX: number, camY: number, camZ: number, dirX: number, dirY: number, dirZ: number): Promise<Uint32Array> {
+      const msg = await sendWithTimeout(
+        { type: "sort", camX, camY, camZ, dirX, dirY, dirZ }, timeouts.getBuffers, "sortByDepth",
+      );
+      return new Uint32Array(msg.sortedIndices as ArrayBuffer);
     },
 
     terminate(): void {

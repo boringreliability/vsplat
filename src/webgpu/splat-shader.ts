@@ -1,15 +1,9 @@
 /**
  * 3DGS Vertex + Fragment shader compilation.
  *
- * WGSL shader that:
- * - Computes 3D covariance from quaternion rotation + scale
- * - Projects to 2D via Jacobian and inverts to conic parameters
- * - Sizes billboard quads dynamically from 3-sigma eigenvalue extent
- * - Evaluates Spherical Harmonics degrees 0-3 for view-dependent color
- * - Applies Gaussian falloff and premultiplied alpha blending
- *
- * All matrices use Column-Major layout (WebGPU/WGSL standard).
- * Fragment shader Y-axis is flipped: (0,0) at top-left in pixel space.
+ * Eigenvector-aligned quads + UV-space Gaussian (PlayCanvas-style).
+ * No conic in fragment — dot(uv, uv) + normExp replaces 5-term conic.
+ * SH band 1 signs: (-y, +z, -x) matching PlayCanvas convention.
  */
 
 export interface SplatShaderPipeline {
@@ -18,14 +12,12 @@ export interface SplatShaderPipeline {
 }
 
 const SPLAT_3DGS_WGSL = /* wgsl */ `
-// ─── 3D Gaussian Splatting — Full Vertex + Fragment Shader ───────
-// Computes covariance, projects to conic, evaluates SH degree 0-3.
+// ─── 3D Gaussian Splatting — Eigenvector Quads + UV Gaussian ─────
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
-  @location(0) conic_and_opacity: vec4f,
-  @location(1) center: vec2f,
-  @location(2) color: vec3f,
+  @location(0) uv_and_opacity: vec4f,  // uv.x, uv.y, opacity, unused
+  @location(1) color: vec3f,
 };
 
 struct CameraUniforms {
@@ -63,12 +55,11 @@ const SH_C3_4: f32 = -0.4570457994644658;
 const SH_C3_5: f32 =  1.445305721320277;
 const SH_C3_6: f32 = -0.5900435899266435;
 
-// ─── SH Evaluation (Degree 0-3) ─────────────────────────────────
+// ─── SH Evaluation ──────────────────────────────────────────────
 fn evaluate_sh(idx: u32, dir: vec3f) -> vec3f {
   let base = idx * camera.sh_dim;
   let x = dir.x; let y = dir.y; let z = dir.z;
 
-  // Degree 0: DC (constant, view-independent)
   var color = vec3f(
     SH_C0 * sh_coefficients[base]     + 0.5,
     SH_C0 * sh_coefficients[base + 1u] + 0.5,
@@ -76,11 +67,11 @@ fn evaluate_sh(idx: u32, dir: vec3f) -> vec3f {
   );
 
   if (camera.sh_degree >= 1u && camera.sh_dim >= 12u) {
-    // Degree 1: Y_1^{-1}=y, Y_1^0=z, Y_1^{+1}=x
     let b1 = base + 3u;
-    color += SH_C1 * y * vec3f(sh_coefficients[b1], sh_coefficients[b1+1u], sh_coefficients[b1+2u]);
+    // PlayCanvas sign convention: (-y, +z, -x) for band 1
+    color += SH_C1 * (-y) * vec3f(sh_coefficients[b1], sh_coefficients[b1+1u], sh_coefficients[b1+2u]);
     color += SH_C1 * z * vec3f(sh_coefficients[b1+3u], sh_coefficients[b1+4u], sh_coefficients[b1+5u]);
-    color += SH_C1 * x * vec3f(sh_coefficients[b1+6u], sh_coefficients[b1+7u], sh_coefficients[b1+8u]);
+    color += SH_C1 * (-x) * vec3f(sh_coefficients[b1+6u], sh_coefficients[b1+7u], sh_coefficients[b1+8u]);
   }
 
   if (camera.sh_degree >= 2u && camera.sh_dim >= 27u) {
@@ -109,23 +100,20 @@ fn evaluate_sh(idx: u32, dir: vec3f) -> vec3f {
   return max(color, vec3f(0.0));
 }
 
-// ─── 3D Covariance from Quaternion + Scale ───────────────────────
-// Returns upper triangle [σ_xx, σ_xy, σ_xz, σ_yy, σ_yz, σ_zz] as two vec3f.
+// ─── 3D Covariance ──────────────────────────────────────────────
 fn compute_cov3d(quat: vec4f, scale: vec3f) -> array<f32, 6> {
   let w = quat.x; let x = quat.y; let y = quat.z; let z = quat.w;
 
-  // Rotation matrix from quaternion
   let r00 = 1.0 - 2.0*(y*y + z*z); let r01 = 2.0*(x*y - w*z); let r02 = 2.0*(x*z + w*y);
   let r10 = 2.0*(x*y + w*z); let r11 = 1.0 - 2.0*(x*x + z*z); let r12 = 2.0*(y*z - w*x);
   let r20 = 2.0*(x*z - w*y); let r21 = 2.0*(y*z + w*x); let r22 = 1.0 - 2.0*(x*x + y*y);
 
-  // Scales are linear (exp() applied in Rust at load time, not per-frame in shader)
+  // Scales are linear (exp() applied in Rust at load time)
   let sx = scale.x; let sy = scale.y; let sz = scale.z;
   let m00 = r00*sx; let m01 = r01*sy; let m02 = r02*sz;
   let m10 = r10*sx; let m11 = r11*sy; let m12 = r12*sz;
   let m20 = r20*sx; let m21 = r21*sy; let m22 = r22*sz;
 
-  // Σ = M * Mᵀ
   return array<f32, 6>(
     m00*m00 + m01*m01 + m02*m02,
     m00*m10 + m01*m11 + m02*m12,
@@ -136,38 +124,77 @@ fn compute_cov3d(quat: vec4f, scale: vec3f) -> array<f32, 6> {
   );
 }
 
-// ─── Project 3D Covariance → 2D Conic ───────────────────────────
-// Returns conic (A, B, C) = inverse of 2D covariance, plus the 2D covariance
-// eigenvalue-based radius for quad sizing.
-struct ConicResult {
-  conic: vec3f,   // (A, B, C) inverse 2D covariance
-  radius: f32,    // 3-sigma pixel radius for quad extent
-};
+// ─── Vertex Shader ───────────────────────────────────────────────
+// 128 splats per mesh instance for GPU occupancy (matches PlayCanvas).
+// vertex_position.xy = corner UV [-1,1], vertex_position.z = splat offset [0-127].
+const SPLATS_PER_INSTANCE: u32 = 128u;
 
-fn project_to_conic(cov3d: array<f32, 6>, world_pos: vec3f) -> ConicResult {
-  // Transform position to view space (Column-Major mat4x4)
-  // Note: view_pos.z is negative for splats in front of camera (right-handed, -Z into screen).
-  // Caller (vs_main) has already culled splats with view_pos.z > -0.01.
+@vertex
+fn vs_main(
+  @location(0) vertex_position: vec3f,
+  @builtin(instance_index) iid: u32,
+) -> VertexOutput {
+  // Global splat order index = instance * 128 + per-vertex offset
+  let order = iid * SPLATS_PER_INSTANCE + u32(vertex_position.z);
+
+  // Out of range (last instance may be partially full)
+  if (order >= arrayLength(&sorted_indices)) {
+    var out: VertexOutput;
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);
+    return out;
+  }
+
+  // ─── Step 1: bounds + index (cheapest) ──────────────────────
+  let idx = sorted_indices[order];
+  let b3 = idx * 3u;
+
+  // ─── Step 2: position + behind-camera check (cheap) ────────
+  let world_pos = vec3f(positions[b3], -positions[b3+1u], positions[b3+2u]);
   let view_pos = camera.view * vec4f(world_pos, 1.0);
-  let tz = -view_pos.z; // positive depth (negated from view space)
-  let tz2 = tz * tz;
+  if (view_pos.z > -0.01) {
+    var out: VertexOutput;
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);
+    return out;
+  }
 
-  // Jacobian of perspective projection
+  // ─── Step 3: opacity check (cheap — one buffer read) ───────
+  let opacity = opacities[idx];
+  if (opacity < 1.0 / 255.0) {
+    var out: VertexOutput;
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);
+    return out;
+  }
+
+  // ─── Step 4: project center + quick frustum cull (medium) ──
+  let clip = camera.proj * view_pos;
+  let ndc = clip.xy / clip.w;
+  if (abs(ndc.x) > 1.3 || abs(ndc.y) > 1.3) {
+    var out: VertexOutput;
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);
+    return out;
+  }
+
+  // ─── Step 5: EXPENSIVE — rotation + scale + covariance ─────
+  let b4 = idx * 4u;
+  let quat = vec4f(rotations[b4], rotations[b4+1u], rotations[b4+2u], rotations[b4+3u]);
+  let scale = vec3f(scales[b3], scales[b3+1u], scales[b3+2u]);
+  let cov3d = compute_cov3d(quat, scale);
+
+  // Project to 2D covariance
+  let tz = -view_pos.z;
+  let tz2 = tz * tz;
   let j00 = camera.focal.x / tz;
   let j02 = -(camera.focal.x * view_pos.x) / tz2;
   let j11 = camera.focal.y / tz;
   let j12 = -(camera.focal.y * view_pos.y) / tz2;
 
-  // W = upper-left 3×3 of view matrix (WGSL mat4x4 is Column-Major: camera.view[col][row])
   let w00 = camera.view[0][0]; let w01 = camera.view[1][0]; let w02 = camera.view[2][0];
   let w10 = camera.view[0][1]; let w11 = camera.view[1][1]; let w12 = camera.view[2][1];
   let w20 = camera.view[0][2]; let w21 = camera.view[1][2]; let w22 = camera.view[2][2];
 
-  // T = J * W (2×3)
   let t00 = j00*w00 + j02*w20; let t01 = j00*w01 + j02*w21; let t02 = j00*w02 + j02*w22;
   let t10 = j11*w10 + j12*w20; let t11 = j11*w11 + j12*w21; let t12 = j11*w12 + j12*w22;
 
-  // Σ₂D = T * Σ₃D * Tᵀ
   let sxx = cov3d[0]; let sxy = cov3d[1]; let sxz = cov3d[2];
   let syy = cov3d[3]; let syz = cov3d[4]; let szz = cov3d[5];
 
@@ -182,113 +209,70 @@ fn project_to_conic(cov3d: array<f32, 6>, world_pos: vec3f) -> ConicResult {
   let cov_b = ts00*t10 + ts01*t11 + ts02*t12;
   let cov_c = ts10*t10 + ts11*t11 + ts12*t12;
 
-  // Invert to conic (A, B, C)
-  let det = cov_a * cov_c - cov_b * cov_b;
-  let inv_det = 1.0 / max(det, 1e-10);
-  let conic = vec3f(cov_c * inv_det, -cov_b * inv_det, cov_a * inv_det);
-
-  // 3-sigma radius from eigenvalues of 2D covariance
+  // Eigenvalues + eigenvector
   let mid = 0.5 * (cov_a + cov_c);
+  let det = cov_a * cov_c - cov_b * cov_b;
   let disc = max(mid * mid - det, 0.0);
-  let lambda_max = mid + sqrt(disc);
-  // Clamp radius to prevent GPU hang from degenerate splats
-  let radius = min(ceil(3.0 * sqrt(lambda_max)), 512.0);
+  let lambda1 = mid + sqrt(disc);
+  let lambda2 = max(mid - sqrt(disc), 0.1);
 
-  return ConicResult(conic, radius);
-}
+  let diagVec = normalize(vec2f(cov_b, lambda1 - cov_a));
+  let perpVec = vec2f(diagVec.y, -diagVec.x);
 
-// ─── Quad Offsets ────────────────────────────────────────────────
-const QUAD_OFFSETS = array<vec2f, 4>(
-  vec2f(-1.0, -1.0),
-  vec2f( 1.0, -1.0),
-  vec2f(-1.0,  1.0),
-  vec2f( 1.0,  1.0),
-);
+  let l1 = 2.0 * sqrt(2.0 * lambda1);
+  let l2 = 2.0 * sqrt(2.0 * lambda2);
 
-// ─── Vertex Shader ───────────────────────────────────────────────
-// OPTIMIZATION NOTE: Currently cov3d and conic are computed per-vertex (4x per splat).
-// In a production setup, this should be moved to a pre-compute pass or evaluated
-// per-instance if the topology allows.
-@vertex
-fn vs_main(
-  @builtin(vertex_index) vid: u32,
-  @builtin(instance_index) iid: u32,
-) -> VertexOutput {
-  let idx = sorted_indices[iid];
-  let b3 = idx * 3u;
-  let b4 = idx * 4u;
-
-  // 3DGS Y-down convention → negate Y for WebGPU's Y-up NDC
-  let world_pos = vec3f(positions[b3], -positions[b3+1u], positions[b3+2u]);
-
-  // ─── Back-camera culling ───────────────────────────────────────
-  // Right-handed view space: -Z points into the screen.
-  // Cull splats that are behind or too close to the camera.
-  let view_pos = camera.view * vec4f(world_pos, 1.0);
-  if (view_pos.z > -0.01) {
+  // Min pixel size cull
+  if (l1 < 2.0 && l2 < 2.0) {
     var out: VertexOutput;
-    out.position = vec4f(2.0, 2.0, 2.0, 1.0); // Outside clip space → culled
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);
     return out;
   }
 
-  let quat = vec4f(rotations[b4], rotations[b4+1u], rotations[b4+2u], rotations[b4+3u]);
-  let scale = vec3f(scales[b3], scales[b3+1u], scales[b3+2u]);
-  let opacity = opacities[idx];
+  let v1 = l1 * diagVec;
+  let v2 = l2 * perpVec;
 
-  // Compute 3D covariance → project to 2D → invert to conic
-  let cov3d = compute_cov3d(quat, scale);
-  let cr = project_to_conic(cov3d, world_pos);
+  // Frustum cull with actual splat size
+  let ndc_size = max(l1, l2) / min(camera.viewport.x, camera.viewport.y) * 2.0;
+  if (abs(ndc.x) - ndc_size > 1.0 || abs(ndc.y) - ndc_size > 1.0) {
+    var out: VertexOutput;
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);
+    return out;
+  }
 
-  // Project position to clip space
-  let clip = camera.proj * camera.view * vec4f(world_pos, 1.0);
-  let ndc = clip.xy / clip.w;
-
-  // Screen-space center (Y-flipped: WebGPU pixel space has (0,0) at top-left)
-  let screen_center = vec2f(
-    (ndc.x * 0.5 + 0.5) * camera.viewport.x,
-    (0.5 - ndc.y * 0.5) * camera.viewport.y,
-  );
-
-  // Billboard quad offset scaled by 3-sigma radius (dynamic, not hardcoded)
-  let pixel_offset = QUAD_OFFSETS[vid] * cr.radius;
+  let cornerUV = vertex_position.xy;
+  let pixel_offset = cornerUV.x * v1 + cornerUV.y * v2;
   let ndc_offset = pixel_offset / camera.viewport * 2.0;
+
+  // ─── Step 6: SH evaluation (only for visible splats) ───────
+  let view_dir = normalize(camera.camera_pos - world_pos);
+  let color = evaluate_sh(idx, view_dir);
 
   var out: VertexOutput;
   out.position = vec4f(ndc + ndc_offset, clip.z / clip.w, 1.0);
-  out.conic_and_opacity = vec4f(cr.conic, opacity);
-  out.center = screen_center;
-
-  // SH evaluation with view direction (splat → camera, i.e. pointing toward camera)
-  let view_dir = normalize(camera.camera_pos - world_pos);
-  out.color = evaluate_sh(idx, view_dir);
-
+  out.uv_and_opacity = vec4f(cornerUV, opacities[idx], 0.0);
+  out.color = color;
   return out;
 }
 
-// ─── Fragment Shader ─────────────────────────────────────────────
+// ─── Fragment Shader: normExp + dot(uv, uv) ─────────────────────
+const EXP4: f32 = 0.01831563888873418;
+const INV_EXP4: f32 = 1.0186627840408993;
+
+fn normExp(x: f32) -> f32 {
+  return (exp(x * -4.0) - EXP4) * INV_EXP4;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-  // dx, dy in pixel space from fragment to splat center
-  let dx = in.position.xy - in.center;
-  let conic = in.conic_and_opacity.xyz;
-  let opacity = in.conic_and_opacity.w;
+  let uv = in.uv_and_opacity.xy;
+  let A = dot(uv, uv);
+  if (A > 1.0) { discard; }
 
-  // Gaussian evaluation: exp(-0.5 * (A·dx² + 2B·dx·dy + C·dy²))
-  let power = -0.5 * (conic.x * dx.x * dx.x + 2.0 * conic.y * dx.x * dx.y + conic.z * dx.y * dx.y);
+  let opacity = in.uv_and_opacity.z;
+  let alpha = min(normExp(A) * opacity, 0.999);
+  if (alpha < 1.0 / 255.0) { discard; }
 
-  // Clamp power to avoid exp() overflow
-  if (power > 0.0) {
-    discard;
-  }
-
-  let alpha = min(opacity * exp(power), 0.999);
-
-  if (alpha < 1.0 / 255.0) {
-    discard;
-  }
-
-  // Premultiplied alpha output
-  // Premultiplied alpha output
   return vec4f(in.color * alpha, alpha);
 }
 `;
@@ -326,19 +310,29 @@ export async function compileSplatShader(
     vertex: {
       module: shaderModule,
       entryPoint: "vs_main",
+      buffers: [{
+        arrayStride: 12, // 3 × f32
+        stepMode: "vertex",
+        attributes: [{
+          shaderLocation: 0,
+          offset: 0,
+          format: "float32x3",
+        }],
+      }],
     },
     fragment: {
       module: shaderModule,
       entryPoint: "fs_main",
       targets: [{
         format,
+        // Front-to-back blend: already-covered pixels reject new splats
         blend: {
-          color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
-          alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+          color: { srcFactor: "one-minus-dst-alpha", dstFactor: "one" },
+          alpha: { srcFactor: "one-minus-dst-alpha", dstFactor: "one" },
         },
       }],
     },
-    primitive: { topology: "triangle-strip" },
+    primitive: { topology: "triangle-list" },
   } as GPURenderPipelineDescriptor);
 
   return { pipeline, shaderModule };

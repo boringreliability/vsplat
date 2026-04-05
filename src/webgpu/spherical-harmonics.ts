@@ -52,9 +52,10 @@ export function evaluateSH(
     // Degree 1: Y_1^{-1} = C1*y, Y_1^0 = C1*z, Y_1^1 = C1*x
     const base = 3;
     for (let c = 0; c < 3; c++) {
-      result[c] += SH_C1 * y * coeffs[base + c];       // Y_1^{-1}
-      result[c] += SH_C1 * z * coeffs[base + 3 + c];   // Y_1^{0}
-      result[c] += SH_C1 * x * coeffs[base + 6 + c];   // Y_1^{+1}
+      // PlayCanvas sign convention: (-y, +z, -x) for band 1
+      result[c] += SH_C1 * (-y) * coeffs[base + c];      // Y_1^{-1}
+      result[c] += SH_C1 * z * coeffs[base + 3 + c];     // Y_1^{0}
+      result[c] += SH_C1 * (-x) * coeffs[base + 6 + c];  // Y_1^{+1}
     }
   }
 

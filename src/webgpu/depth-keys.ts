@@ -58,7 +58,7 @@ fn compute_depth_keys(@builtin(global_invocation_id) gid: vec3u) {
 
   // Convert to sortable uint, then invert for descending sort (farthest first)
   let sortable = float_to_sortable(depth);
-  sort_keys[idx] = sortable ^ 0xFFFFFFFFu; // invert: largest depth gets smallest key → sorted first
+  sort_keys[idx] = sortable ^ 0xFFFFFFFFu; // invert for descending (back-to-front)
 
   // Initialize identity index
   indices[idx] = idx;

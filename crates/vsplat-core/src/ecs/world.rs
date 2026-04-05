@@ -39,6 +39,11 @@ pub struct World {
     pub flat_rotations: Vec<f32>,
     /// Flat scales: [sx0,sy0,sz0, sx1,sy1,sz1, ...]. Length = entity_count * 3.
     pub flat_scales: Vec<f32>,
+    /// Sorted indices for rendering. Populated by sort_by_depth().
+    pub sorted_indices: Vec<u32>,
+    /// Scratch buffers for O(n) counting sort
+    pub depth_buffer: Vec<u32>,
+    pub count_buffer: Vec<u32>,
 }
 
 impl World {
@@ -53,6 +58,9 @@ impl World {
             flat_positions: Vec::new(),
             flat_rotations: Vec::new(),
             flat_scales: Vec::new(),
+            sorted_indices: Vec::new(),
+            depth_buffer: Vec::new(),
+            count_buffer: Vec::new(),
         }
     }
 
@@ -134,5 +142,84 @@ impl World {
     /// Total number of splats in the world.
     pub fn splat_count(&self) -> usize {
         self.opacities.len()
+    }
+
+    /// O(n) counting sort by dot-product depth, nearest first (front-to-back).
+    /// Uses adaptive key width (10-20 bits) based on splat count.
+    /// Y is negated to match 3DGS→WebGPU convention.
+    /// Returns total count (behind-camera culling handled in vertex shader).
+    pub fn sort_by_depth(
+        &mut self,
+        cam_x: f32, cam_y: f32, cam_z: f32,
+        dir_x: f32, dir_y: f32, dir_z: f32,
+    ) -> usize {
+        let count = self.splat_count();
+        if count == 0 { return 0; }
+        let pos = &self.flat_positions;
+
+        // Resize scratch buffers
+        if self.depth_buffer.len() != count {
+            self.depth_buffer.resize(count, 0);
+        }
+        if self.sorted_indices.len() != count {
+            self.sorted_indices.resize(count, 0);
+        }
+
+        // Pass 1: compute dot-product depths, find min/max
+        let mut min_depth = f32::MAX;
+        let mut max_depth = f32::MIN;
+        for i in 0..count {
+            let idx = i * 3;
+            let x = pos[idx];
+            let y = -pos[idx + 1]; // Y-flip
+            let z = pos[idx + 2];
+            let d = x * dir_x + y * dir_y + z * dir_z;
+            if d < min_depth { min_depth = d; }
+            if d > max_depth { max_depth = d; }
+        }
+
+        // Adaptive key width: ceil(log2(count)) clamped to [10, 20]
+        let key_bits = ((count as f32).log2().ceil() as u32).clamp(10, 20);
+        let bucket_count = (1u32 << key_bits) + 1;
+
+        // Resize count buffer
+        if self.count_buffer.len() < bucket_count as usize {
+            self.count_buffer.resize(bucket_count as usize, 0);
+        }
+        self.count_buffer[..bucket_count as usize].fill(0);
+
+        let range = max_depth - min_depth;
+        let inv_range = if range > 1e-6 {
+            (bucket_count - 1) as f32 / range
+        } else {
+            0.0
+        };
+
+        // Pass 2: quantize depths to keys, count per bucket
+        for i in 0..count {
+            let idx = i * 3;
+            let d = pos[idx] * dir_x + (-pos[idx + 1]) * dir_y + pos[idx + 2] * dir_z;
+            let key = ((d - min_depth) * inv_range) as u32;
+            self.depth_buffer[i] = key;
+            self.count_buffer[key as usize] += 1;
+        }
+
+        // Pass 3: exclusive prefix sum
+        let mut sum = 0u32;
+        for i in 0..bucket_count as usize {
+            let c = self.count_buffer[i];
+            self.count_buffer[i] = sum;
+            sum += c;
+        }
+
+        // Pass 4: scatter into sorted_indices (front-to-back: nearest first)
+        for i in 0..count {
+            let key = self.depth_buffer[i] as usize;
+            let dest = self.count_buffer[key] as usize;
+            self.sorted_indices[dest] = i as u32;
+            self.count_buffer[key] += 1;
+        }
+
+        count
     }
 }

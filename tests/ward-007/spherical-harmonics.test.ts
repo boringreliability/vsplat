@@ -222,50 +222,40 @@ describe("Ward 007: Splat Fragment Shader (Spherical Harmonics)", () => {
   // ─── Test 4: sh_degree_1_view_dependent ───────────────────────
 
   describe("SH degree 1 (view-dependent)", () => {
-    it("should modulate specific RGB channels based on view direction", () => {
-      // Given: DC = zero, degree 1 coefficients designed so that:
-      //   Looking from +Y adds red     (Y basis → R channel)
-      //   Looking from +Z adds green   (Z basis → G channel)
-      //   Looking from +X adds blue    (X basis → B channel)
-      //
-      // SH degree 1 basis functions: Y_1^{-1}=y, Y_1^0=z, Y_1^1=x (scaled by SH_C1)
-      // Coefficients are stored as [R,G,B] per basis function.
+    it("should modulate RGB channels per PlayCanvas sign convention (-y, +z, -x)", () => {
+      // PlayCanvas band 1: SH_C1 * (-y*sh[0] + z*sh[1] - x*sh[2])
+      // With coeffs [1,0,0, 0,1,0, 0,0,1]:
+      //   +Y → -y*[1,0,0] = Red DECREASED (−SH_C1)
+      //   +Z → +z*[0,1,0] = Green INCREASED (+SH_C1)
+      //   +X → -x*[0,0,1] = Blue DECREASED (−SH_C1)
       const coeffs: number[] = [
         0, 0, 0,        // DC (R, G, B) — neutral
-        1, 0, 0,        // Y_1^{-1} (y-basis): adds Red
-        0, 1, 0,        // Y_1^{0}  (z-basis): adds Green
-        0, 0, 1,        // Y_1^{+1} (x-basis): adds Blue
+        1, 0, 0,        // Y_1^{-1} (y-basis): R
+        0, 1, 0,        // Y_1^{0}  (z-basis): G
+        0, 0, 1,        // Y_1^{+1} (x-basis): B
       ];
 
-      // When: we look from +Y → y-basis activates → Red channel boosted
       const dirY: [number, number, number] = [0, 1, 0];
-      const colorY = evaluateSH(coeffs, dirY, 1);
-
-      // When: we look from +Z → z-basis activates → Green channel boosted
       const dirZ: [number, number, number] = [0, 0, 1];
-      const colorZ = evaluateSH(coeffs, dirZ, 1);
-
-      // When: we look from +X → x-basis activates → Blue channel boosted
       const dirX: [number, number, number] = [1, 0, 0];
+
+      const colorY = evaluateSH(coeffs, dirY, 1);
+      const colorZ = evaluateSH(coeffs, dirZ, 1);
       const colorX = evaluateSH(coeffs, dirX, 1);
 
-      // Then: +Y direction has the highest Red of the three
-      expect(colorY[0]).toBeGreaterThan(colorZ[0]);
-      expect(colorY[0]).toBeGreaterThan(colorX[0]);
+      // +Y: Red DECREASED below baseline (0.5 - SH_C1)
+      expect(colorY[0]).toBeCloseTo(0.5 - SH_C1, 4);
 
-      // Then: +Z direction has the highest Green
-      expect(colorZ[1]).toBeGreaterThan(colorY[1]);
-      expect(colorZ[1]).toBeGreaterThan(colorX[1]);
-
-      // Then: +X direction has the highest Blue
-      expect(colorX[2]).toBeGreaterThan(colorY[2]);
-      expect(colorX[2]).toBeGreaterThan(colorZ[2]);
-
-      // Verify the actual magnitude: SH_C1 * 1.0 (coeff) * 1.0 (dir component)
-      // The boosted channel should be exactly SH_C1 above the DC baseline (0.5)
-      expect(colorY[0]).toBeCloseTo(0.5 + SH_C1, 4);
+      // +Z: Green INCREASED above baseline (0.5 + SH_C1)
       expect(colorZ[1]).toBeCloseTo(0.5 + SH_C1, 4);
-      expect(colorX[2]).toBeCloseTo(0.5 + SH_C1, 4);
+
+      // +X: Blue DECREASED below baseline (0.5 - SH_C1)
+      expect(colorX[2]).toBeCloseTo(0.5 - SH_C1, 4);
+
+      // +Z is the only direction with positive contribution
+      expect(colorZ[1]).toBeGreaterThan(0.5);
+      expect(colorY[0]).toBeLessThan(0.5);
+      expect(colorX[2]).toBeLessThan(0.5);
     });
   });
 

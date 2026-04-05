@@ -136,6 +136,30 @@ pub fn get_sh_len() -> usize {
     with_world(0, |w| w.sh_coefficients.len())
 }
 
+// ─── Sort ────────────────────────────────────────────────────────
+
+/// O(n) counting sort by depth, nearest first (front-to-back).
+/// Camera direction is the view-space -Z axis (normalized).
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn sort_by_depth(
+    cam_x: f32, cam_y: f32, cam_z: f32,
+    dir_x: f32, dir_y: f32, dir_z: f32,
+) -> usize {
+    with_world_mut(|world| {
+        world.sort_by_depth(cam_x, cam_y, cam_z, dir_x, dir_y, dir_z)
+    }).unwrap_or(0)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_sorted_indices_ptr() -> usize {
+    with_world(0, |w| w.sorted_indices.as_ptr() as usize)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn get_sorted_indices_len() -> usize {
+    with_world(0, |w| w.sorted_indices.len())
+}
+
 // ─── Tests ───────────────────────────────────────────────────────
 
 #[cfg(test)]

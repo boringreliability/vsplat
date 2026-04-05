@@ -81,6 +81,24 @@ self.onmessage = async (event: MessageEvent) => {
         break;
       }
 
+      case "sort": {
+        if (!mod || !wasmMemory) {
+          self.postMessage({ type: "error", message: "Not initialized" });
+          break;
+        }
+        const count = mod.sort_by_depth(msg.camX, msg.camY, msg.camZ, msg.dirX, msg.dirY, msg.dirZ);
+        // Copy sorted indices from Wasm memory and transfer
+        const mem = new Uint32Array(wasmMemory.buffer);
+        const idxPtr = mod.get_sorted_indices_ptr() / 4;
+        const idxLen = mod.get_sorted_indices_len();
+        const sortedIndices = mem.slice(idxPtr, idxPtr + idxLen).buffer;
+        self.postMessage(
+          { type: "sorted", sortedIndices, count },
+          [sortedIndices],
+        );
+        break;
+      }
+
       case "ping":
         self.postMessage({ type: "pong" });
         break;

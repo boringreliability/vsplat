@@ -25,6 +25,10 @@ import {
   createDepthKeyPipeline, createDepthKeyBindGroup, encodeDepthKeys,
   type DepthKeyPipeline,
 } from "../webgpu/depth-keys.js";
+import {
+  createSplatMesh, SPLATS_PER_INSTANCE,
+  type SplatMesh,
+} from "../webgpu/splat-mesh.js";
 
 // ─── Error Display ───────────────────────────────────────────────
 
@@ -82,13 +86,16 @@ export async function main(): Promise<void> {
     fov: Math.PI / 4, aspect: canvas.width / canvas.height, near: 0.01, far: 1000,
   });
   camera.setViewport(canvas.width, canvas.height);
-  camera.setFocal(canvas.width / 2, canvas.height / 2);
+  // Focal is auto-derived from projection matrix in uploadToGPU()
 
   // 5. Compile shader (Ward 7)
   let splatPipeline: SplatShaderPipeline;
   try {
     splatPipeline = await compileSplatShader(device, format);
   } catch (err) { showError(err as VsplatError); return; }
+
+  // 5b. Instanced splat mesh (128 quads per instance — PlayCanvas pattern)
+  const splatMesh = createSplatMesh(device);
 
   // 6. Mouse controls
   let isDragging = false, lastX = 0, lastY = 0;
@@ -103,6 +110,7 @@ export async function main(): Promise<void> {
 
   // 7. Scene state
   let splatCount = 0;
+  let cachedPositions: Float32Array | null = null;
   let posBuffer: ReturnType<typeof createGpuSplatBuffer> | null = null;
   let shBuffer: ReturnType<typeof createGpuSHBuffer> | null = null;
   let opBuffer: ReturnType<typeof createGpuOpacityBuffer> | null = null;
@@ -114,6 +122,8 @@ export async function main(): Promise<void> {
   let cachedDepthKeyBindGroup: GPUBindGroup | null = null;
   let cachedDataBindGroup: GPUBindGroup | null = null;
   let cachedCameraBindGroup: GPUBindGroup | null = null;
+  let pendingSortResult: Uint32Array | null = null;
+  let sortInFlight = false;
 
   // 8. Drag-and-drop → load scene
   canvas.addEventListener("dragover", e => e.preventDefault());
@@ -133,6 +143,7 @@ export async function main(): Promise<void> {
       console.log(`[vsplat] Loaded ${splatCount} splats`);
 
       const buffers = await bridge.getBuffers();
+      cachedPositions = buffers.positions; // keep for CPU sort
       const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
 
       // GPU buffers via existing modules (Ward 5, 14)
@@ -163,7 +174,10 @@ export async function main(): Promise<void> {
         camera.getBuffer(),
       );
 
-      camera.setSH(0, buffers.shDim);
+      // Cap SH to degree 1 for performance — degree 2-3 adds minimal visual quality
+      const shBands = Math.min(1, buffers.shDim >= 48 ? 3 : buffers.shDim >= 27 ? 2 : buffers.shDim >= 12 ? 1 : 0);
+      camera.setSH(shBands, buffers.shDim);
+      console.log(`[vsplat] SH: degree ${shBands}, dim ${buffers.shDim}`);
 
       // Cache bind groups (created once per scene load, not per frame)
       cachedDataBindGroup = device.createBindGroup({
@@ -222,8 +236,7 @@ export async function main(): Promise<void> {
     if (frameCount >= 60) {
       const avgMs = fpsAccum / frameCount;
       const fps = 1000 / avgMs;
-      const drawCount = Math.min(splatCount, 500_000);
-      fpsEl.textContent = `${fps.toFixed(0)} fps | ${avgMs.toFixed(1)}ms | ${drawCount}/${splatCount} splats`;
+      fpsEl.textContent = `${fps.toFixed(0)} fps | ${avgMs.toFixed(1)}ms | ${splatCount} splats`;
       frameCount = 0;
       fpsAccum = 0;
     }
@@ -245,11 +258,23 @@ export async function main(): Promise<void> {
     if (cachedDataBindGroup && splatCount > 0) {
       const encoder = device.createCommandEncoder();
 
-      // Sort only when camera moved (depth keys + 24+ GPU dispatches are expensive)
-      if (needsSort && cachedDepthKeyBindGroup && sortBuffers && sortPipelines && depthKeyPipeline) {
-        encodeDepthKeys(device, encoder, depthKeyPipeline, cachedDepthKeyBindGroup, splatCount);
-        encodeSortGlobal(device, encoder, sortPipelines, sortBuffers);
+      // Rust/Wasm counting sort — fire-and-forget, never await in render loop
+      if (needsSort && !sortInFlight) {
+        sortInFlight = true;
         needsSort = false;
+        // Camera direction = normalize(target - eye)
+        const dx = target[0] - eye[0], dy = target[1] - eye[1], dz = target[2] - eye[2];
+        const dlen = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+        bridge.sortByDepth(eye[0], eye[1], eye[2], dx / dlen, dy / dlen, dz / dlen).then(result => {
+          pendingSortResult = result;
+          sortInFlight = false;
+        }).catch(() => { sortInFlight = false; });
+      }
+
+      // Upload sort result when ready (non-blocking)
+      if (pendingSortResult && sortBuffers) {
+        device.queue.writeBuffer(sortBuffers.indicesA, 0, pendingSortResult);
+        pendingSortResult = null;
       }
 
       const textureView = context.getCurrentTexture().createView();
@@ -258,17 +283,17 @@ export async function main(): Promise<void> {
           view: textureView,
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0.05, g: 0.05, b: 0.1, a: 1 },
+          clearValue: { r: 0.05, g: 0.05, b: 0.1, a: 0.0 },
         }],
       });
 
-      const MAX_DRAW_SPLATS = 500_000;
-      const drawCount = Math.min(splatCount, MAX_DRAW_SPLATS);
-
       pass.setPipeline(splatPipeline.pipeline);
+      pass.setVertexBuffer(0, splatMesh.vertexBuffer);
+      pass.setIndexBuffer(splatMesh.indexBuffer, "uint32");
       pass.setBindGroup(0, cachedDataBindGroup);
       pass.setBindGroup(1, cachedCameraBindGroup!);
-      pass.draw(4, drawCount);
+      // 768 indices per instance, ceil(splatCount/128) instances
+      pass.drawIndexed(splatMesh.indexCount, Math.ceil(splatCount / SPLATS_PER_INSTANCE));
       pass.end();
 
       device.queue.submit([encoder.finish()]);

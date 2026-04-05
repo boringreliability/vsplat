@@ -114,8 +114,11 @@ export class CameraSystem {
     f[35] = 0; // padding after camera_pos (explicit zero)
 
     // Offset 144-151: focal (2 × f32 = 8 bytes)
-    f[36] = this.focal[0];
-    f[37] = this.focal[1];
+    // Auto-derive from projection matrix for guaranteed consistency:
+    // focalX = proj[0][0] * viewport.x * 0.5
+    // focalY = proj[1][1] * viewport.y * 0.5
+    f[36] = this.projMatrix[0] * this.viewport[0] * 0.5;
+    f[37] = this.projMatrix[5] * this.viewport[1] * 0.5;
 
     // Offset 152-159: viewport (2 × f32 = 8 bytes)
     f[38] = this.viewport[0];
@@ -137,5 +140,10 @@ export class CameraSystem {
   /** Get the GPU buffer for binding. */
   getBuffer(): GPUBuffer {
     return this.buffer;
+  }
+
+  /** Get the projection matrix (Column-Major Float32Array). */
+  getProjectionMatrix(): Float32Array {
+    return this.projMatrix;
   }
 }
