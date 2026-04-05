@@ -182,8 +182,9 @@ mod tests {
         assert!((splats.positions[1] - 0.1).abs() < 1e-6);
         assert!((splats.positions[2] - 0.2).abs() < 1e-6);
 
-        // Verify first splat's opacity
-        assert!((splats.opacities[0] - 0.9).abs() < 1e-6);
+        // Verify first splat's opacity: raw 0.9 → sigmoid(0.9) ≈ 0.7109
+        let expected_opacity = 1.0 / (1.0 + (-0.9f32).exp());
+        assert!((splats.opacities[0] - expected_opacity).abs() < 1e-4);
     }
 
     // ─── Test 5: stream_binary_multi_chunk ─────────────────────────

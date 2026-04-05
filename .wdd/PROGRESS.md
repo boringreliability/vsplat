@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-17 of 19 Wards complete · 158 estimated tests · 0 blocked
+18 of 19 Wards complete · 156 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -23,8 +23,8 @@
 | 152 | Production Worker Runtime | 12 | ✅ Complete | 2026-04-04 |
 | 161 | True Streaming I/O | 7 | ✅ Complete | 2026-04-04 |
 | 172 | Runtime Resilience & Fallbacks | 9 | ✅ Complete | 2026-04-04 |
-| 18 | vsplat.io Deployment Hardening | 6 | 📋 Planned | - |
+| 181 | First Light | 4 | ✅ Complete | 2026-04-05 |
 | 19 | Observability & Failure Forensics | 6 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 158
+- Estimated total: 156

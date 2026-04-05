@@ -105,8 +105,9 @@ impl PlyParser {
         splats.scales.push(Self::read_f32(record, l.scale[1]));
         splats.scales.push(Self::read_f32(record, l.scale[2]));
 
-        // Opacity
-        splats.opacities.push(Self::read_f32(record, l.opacity));
+        // Opacity: 3DGS stores as logit (log-odds). Apply sigmoid → [0,1].
+        let raw_opacity = Self::read_f32(record, l.opacity);
+        splats.opacities.push(1.0 / (1.0 + (-raw_opacity).exp()));
 
         // SH coefficients via pre-compiled offset array
         for &off in &l.sh_offsets {

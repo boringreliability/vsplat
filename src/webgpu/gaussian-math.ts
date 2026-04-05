@@ -30,7 +30,7 @@ export function computeCovariance3D(
   const r21 = 2 * (y * z + w * x);
   const r22 = 1 - 2 * (x * x + y * y);
 
-  // M = R * S (scale columns of R)
+  // M = R * S (scales are linear — exp() applied at parse time in Rust)
   const sx = scale[0], sy = scale[1], sz = scale[2];
   const m00 = r00 * sx, m01 = r01 * sy, m02 = r02 * sz;
   const m10 = r10 * sx, m11 = r11 * sy, m12 = r12 * sz;

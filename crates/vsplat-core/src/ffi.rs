@@ -275,7 +275,9 @@ mod tests {
         unsafe {
             assert!((*pos_ptr - 0.0).abs() < 1e-6);
             assert!((*pos_ptr.add(1) - 0.1).abs() < 1e-6);
-            assert!((*op_ptr - 0.9).abs() < 1e-6);
+            // Raw opacity 0.9 → sigmoid(0.9) ≈ 0.7109
+            let expected_opacity = 1.0 / (1.0 + (-0.9f32).exp());
+            assert!((*op_ptr - expected_opacity).abs() < 1e-4);
             assert!((*rot_ptr - 1.0).abs() < 1e-6);
         }
     }

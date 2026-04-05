@@ -316,7 +316,10 @@ export async function createGlobalSortPipelines(
 
   for (const s of shaders) {
     const module = device.createShaderModule({ code: s.code, label: s.label });
-    const info = await module.compilationInfo();
+    const getInfo = (module as any).compilationInfo ?? (module as any).getCompilationInfo;
+    const info = typeof getInfo === "function"
+      ? await getInfo.call(module)
+      : { messages: [] };
     const errors = info.messages.filter((m: { type: string }) => m.type === "error");
     if (errors.length > 0) {
       const details = errors.map((e: { message: string }) => e.message).join("; ");

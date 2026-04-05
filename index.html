@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vsplat — First Light</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a14; overflow: hidden; font-family: system-ui, sans-serif; }
+    #canvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      cursor: grab;
+    }
+    #canvas:active { cursor: grabbing; }
+    #error {
+      display: none;
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #cc3333;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      max-width: 600px;
+      text-align: center;
+      z-index: 100;
+    }
+    #drop-hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ffffff44;
+      font-size: 18px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="error"></div>
+  <div id="drop-hint">Drop a .ply file here</div>
+  <script type="module" src="/src/app/main.ts"></script>
+</body>
+</html>

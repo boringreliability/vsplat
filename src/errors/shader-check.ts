@@ -17,7 +17,9 @@ export async function assertShaderCompiles(
   module: GPUShaderModule,
   shaderName: string,
 ): Promise<void> {
-  const info = await module.compilationInfo();
+  const getInfo = (module as any).compilationInfo ?? (module as any).getCompilationInfo;
+  if (typeof getInfo !== "function") return; // API not available — can't validate
+  const info = await getInfo.call(module);
   const errors = info.messages.filter(
     (m: { type: string }) => m.type === "error",
   );

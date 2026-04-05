@@ -112,12 +112,21 @@ impl World {
             self.visibility.insert(entity, Visibility::default());
         }
 
-        // All flat buffers: bulk copy from SplatData (zero per-entity allocation)
+        // Flat buffers: bulk copy for most, convert for scales
+        // Opacity is already sigmoid'd by the parser (Ward 18).
         self.opacities.extend_from_slice(&data.opacities);
         self.sh_coefficients.extend_from_slice(&data.sh_coefficients);
         self.flat_positions.extend_from_slice(&data.positions);
         self.flat_rotations.extend_from_slice(&data.rotations);
-        self.flat_scales.extend_from_slice(&data.scales);
+
+        // GPU-ready scales: exp() converts from log-space to linear.
+        // ECS Transform retains raw log-space scales for roundtrip export.
+        for i in 0..count {
+            let s = i * 3;
+            self.flat_scales.push(data.scales[s].exp());
+            self.flat_scales.push(data.scales[s + 1].exp());
+            self.flat_scales.push(data.scales[s + 2].exp());
+        }
 
         entities
     }

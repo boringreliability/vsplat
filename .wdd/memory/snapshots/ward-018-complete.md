@@ -1,10 +1,10 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 18 complete — 2026-04-05
+Ward 17 complete — 2026-04-02
 
 ## Current State
-18 of 19 wards complete. First Light achieved. 184 tests (155 TS + 29 Rust). End-to-end pipeline: PLY → Rust parser (sigmoid opacity, log-space scale) → Worker bridge → GPU upload → depth key compute → global radix sort → 3DGS splat shader (covariance→conic→Gaussian falloff→SH DC color) → orbit camera. Draw budget 500K, sort-on-camera-change, FPS counter.
+17 of 19 wards complete (hardening phase 2: 2/2). 180 tests (151 TS + 29 Rust). VsplatError type system, capability gate, memory estimation, shader compilation check, per-operation bridge timeouts, Worker crash handling. All bridge errors are structured VsplatError.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -42,4 +42,4 @@ Ward 18 complete — 2026-04-05
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- Ward 19: Observability & Failure Forensics — timeline, error log, diagnostics
+- Ward 18: vsplat.io Deployment Hardening — COOP/COEP, CSP, Wasm MIME, asset hashing

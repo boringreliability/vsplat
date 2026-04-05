@@ -119,7 +119,7 @@ fn compute_cov3d(quat: vec4f, scale: vec3f) -> array<f32, 6> {
   let r10 = 2.0*(x*y + w*z); let r11 = 1.0 - 2.0*(x*x + z*z); let r12 = 2.0*(y*z - w*x);
   let r20 = 2.0*(x*z - w*y); let r21 = 2.0*(y*z + w*x); let r22 = 1.0 - 2.0*(x*x + y*y);
 
-  // M = R * S
+  // Scales are linear (exp() applied in Rust at load time, not per-frame in shader)
   let sx = scale.x; let sy = scale.y; let sz = scale.z;
   let m00 = r00*sx; let m01 = r01*sy; let m02 = r02*sz;
   let m10 = r10*sx; let m11 = r11*sy; let m12 = r12*sz;
@@ -191,7 +191,8 @@ fn project_to_conic(cov3d: array<f32, 6>, world_pos: vec3f) -> ConicResult {
   let mid = 0.5 * (cov_a + cov_c);
   let disc = max(mid * mid - det, 0.0);
   let lambda_max = mid + sqrt(disc);
-  let radius = ceil(3.0 * sqrt(lambda_max));
+  // Clamp radius to prevent GPU hang from degenerate splats
+  let radius = min(ceil(3.0 * sqrt(lambda_max)), 512.0);
 
   return ConicResult(conic, radius);
 }
@@ -217,7 +218,8 @@ fn vs_main(
   let b3 = idx * 3u;
   let b4 = idx * 4u;
 
-  let world_pos = vec3f(positions[b3], positions[b3+1u], positions[b3+2u]);
+  // 3DGS Y-down convention → negate Y for WebGPU's Y-up NDC
+  let world_pos = vec3f(positions[b3], -positions[b3+1u], positions[b3+2u]);
 
   // ─── Back-camera culling ───────────────────────────────────────
   // Right-handed view space: -Z points into the screen.
@@ -286,6 +288,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
   }
 
   // Premultiplied alpha output
+  // Premultiplied alpha output
   return vec4f(in.color * alpha, alpha);
 }
 `;
@@ -304,13 +307,17 @@ export async function compileSplatShader(
     label: "splat-3dgs-shader",
   });
 
-  const compilationInfo = await shaderModule.compilationInfo();
-  const errors = compilationInfo.messages.filter(
-    (m: { type: string }) => m.type === "error",
-  );
-  if (errors.length > 0) {
-    const details = errors.map((e: { message: string }) => e.message).join("; ");
-    throw new Error(`Splat shader compilation failed: ${details}`);
+  // compilationInfo() may not exist on all implementations — guard it
+  const getInfo = (shaderModule as any).compilationInfo ?? (shaderModule as any).getCompilationInfo;
+  if (typeof getInfo === "function") {
+    const compilationInfo = await getInfo.call(shaderModule);
+    const errors = compilationInfo.messages.filter(
+      (m: { type: string }) => m.type === "error",
+    );
+    if (errors.length > 0) {
+      const details = errors.map((e: { message: string }) => e.message).join("; ");
+      throw new Error(`Splat shader compilation failed: ${details}`);
+    }
   }
 
   const pipeline = device.createRenderPipeline({

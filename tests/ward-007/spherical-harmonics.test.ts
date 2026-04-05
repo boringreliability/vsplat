@@ -83,10 +83,11 @@ describe("Ward 007: Splat Fragment Shader (Spherical Harmonics)", () => {
       const rotation: [number, number, number, number] = [
         Math.cos(angle / 2), 0, 0, Math.sin(angle / 2),
       ];
+      // Linear scale (exp() applied at parse time, not here)
       const scale: [number, number, number] = [1.0, 3.0, 0.5];
 
-      // 3D covariance = R * S * S^T * R^T
-      // With 45° Z-rotation + asymmetric scale, off-diagonals MUST be non-zero
+      // 3D covariance = R * diag(s)² * R^T
+      // With 30° Z-rotation + asymmetric scale, off-diagonals MUST be non-zero
       const cov3d = computeCovariance3D(rotation, scale);
 
       // σ_xx and σ_yy should be mixed (neither pure 1.0 nor pure 9.0)
@@ -94,7 +95,7 @@ describe("Ward 007: Splat Fragment Shader (Spherical Harmonics)", () => {
       expect(cov3d[0]).toBeLessThan(9.0);
       // Off-diagonal σ_xy must be non-zero due to rotation
       expect(Math.abs(cov3d[1])).toBeGreaterThan(0.1);
-      // σ_zz is unaffected by Z-rotation
+      // σ_zz is unaffected by Z-rotation: 0.5² = 0.25
       expect(cov3d[5]).toBeCloseTo(0.25);
 
       // Given: a view matrix with a 30° Y-rotation (Column-Major layout).
