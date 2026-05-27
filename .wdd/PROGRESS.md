@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-21 of 25 Wards complete · 204 estimated tests · 0 blocked
+22 of 25 Wards complete · 205 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -27,10 +27,10 @@
 | 019 | Production Rendering | 8 | ⏸️ Deferred | 2026-05-26 |
 | 020 | The Point Cloud Shader & Pipeline Clean | 7 | ✅ Complete | 2026-05-27 |
 | 021 | LAS/LAZ Stream Ingestion | 9 | ✅ Complete | 2026-05-27 |
-| 022 | Intensity Color-Ramp Mapping | 6 | 📋 Planned | - |
+| 022 | Intensity Color-Ramp Mapping | 7 | ✅ Complete | 2026-05-27 |
 | 023 | Hardware Z-Buffer Hardening (Massive Scale) | 8 | 📋 Planned | - |
 | 024 | WebGPU API Migration & Tech Debt | 10 | ✅ Complete | 2026-05-27 |
-| 025 | LAZ Decompression | ~6 | 📋 Planned | - |
+| 025 | LAZ Decompression | 6 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 198
+- Estimated total: 205

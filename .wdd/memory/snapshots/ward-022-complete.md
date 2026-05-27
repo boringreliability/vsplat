@@ -1,21 +1,23 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 22 complete — 2026-05-27
+Ward 21 complete — 2026-05-27
 
 ## Current State
-**Epic 06 LiDAR Point Cloud Pivot — color rendering live på ægte LiDAR-data.** Fire wards complete:
+**Epic 06 LiDAR Point Cloud Pivot — LAS-ingestion live.** Tre wards complete:
 
-- **Ward 20**: hardware Z-buffer point-pipeline + `RENDER_MODE` flag
-- **Ward 24**: WebGPU API migration på 4 moduler
-- **Ward 21**: LAS streaming parser (28M points/sekund parse-rate)
-- **Ward 22**: Color ramp mapping (Viridis/Inferno/Grayscale/Elevation/Classification/RGB direct)
+- **Ward 20**: hardware Z-buffer point-pipeline + `RENDER_MODE` flag (50K torus @ 120 FPS)
+- **Ward 24**: WebGPU API migration på 4 moduler (`getCompilationInfo`)
+- **Ward 21**: LAS streaming parser i Rust + FFI + `LasBridge` worker bridge. Verificeret med syntetisk PDRF 3 helix @ 28M points/sekund (17× over budget). LAZ-filer detekteres og afvises med klar fejlbesked.
 
-Smoke-test verificeret på Velodyne real-world LiDAR: **3.4M points @ 120 FPS i Inferno-mode**. Power lines, vejmarkeringer og bygninger synlige via intensity-baseret farve. PDRF 1/2/3 håndteres. Color ramps swapper øjeblikkeligt mellem modes uden FPS-tab.
+Smoke-test `las-smoke.html` viser end-to-end pipeline: ArrayBuffer → Wasm parser → FFI → GPU → Ward 20's point-pipeline. Drag-drop af .las filer + syntetisk generator-knap.
 
-### Active wards (parallelt arbejde tilladt)
-- **Ward 23** (Hardware Z-Buffer Hardening / 20M scale) — dependencies opfyldt (9, 20, 21, 22). Næste teknisk-tunge ward.
-- **Ward 25** (LAZ Decompression) — uafhængig af 23. Real-world LiDAR-data er ofte LAZ; pip-installeret `laspy + lazrs` virker som workaround i mellemtiden.
+### Active wards (parallelt arbejde tilladt — ingen vandfald)
+- **Ward 22** (Intensity Color-Ramp Mapping) — dependencies opfyldt (20, 21)
+- **Ward 25** (LAZ Decompression) — afdækket som **højværdi** efter Ward 21 smoke: alle reelle test-filer var .laz, ikke .las. USGS/Open Topography/NOAA distribuerer kun LAZ. Ward 25 bør prioriteres højt hvis vi vil have ægte brugsværdi.
+
+### Blocked
+- Ward 23 (20M scale) venter på 22
 
 ### Deferred
 - Ward 19 (Production Rendering for 3DGS) — koden bevares som regression-baseline under `RENDER_MODE="splats"`
@@ -71,11 +73,12 @@ Smoke-test verificeret på Velodyne real-world LiDAR: **3.4M points @ 120 FPS i 
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- **Ward 23** (Hardware Z-Buffer Hardening / Massive Scale): perspektiv-korrekt point size + frustum culling + batch drawing for 20M+ points. Vi kører allerede 3.4M @ 120fps uden disse, men 20M kræver dem.
-- **Ward 25** (LAZ Decompression): kan startes parallelt — rører kun Rust LAS-modul. Brugbar med pip-laspy workaround i mellemtiden.
+To valgmuligheder (kan tages parallelt):
+
+- **Ward 25** (LAZ Decompression) — anbefalet næste. Ward 21's smoke afslørede at ægte brugsdata næsten kun findes som .laz. Tre strategier: `laz-rs` crate på wasm32 (lavrisiko), manuel port, eller `laz-perf` via JS. ~1-3 dage afhængigt af strategi.
+- **Ward 22** (Intensity Color-Ramp Mapping) — TypeScript+WGSL. Tilføjer color-ramp texture og udvider Ward 20's bind group. ~1-2 dage.
 
 ### Resolved tech debt
 - ✅ Ward 24: `compilationInfo()` → `getCompilationInfo()` på 4 moduler
 - ✅ Ward 21: LAZ silently-strip bug — nu eksplicit `LazCompressed` error variant
-- ✅ Ward 22: Wasm-memory growth-fælde i smoke-page (positions detachet ved heap-grow) — fixed med eksplicit copy ud af views
 - 🟡 `wdd complete` regenererer PROGRESS.md uden at kende `deferred`-status — kræver manuel patch efter hver complete

@@ -52,11 +52,23 @@
 <body>
   <canvas id="canvas"></canvas>
   <div id="hud">
-    <h1>Ward 21 — LAS Ingestion Smoke Test</h1>
+    <h1>Ward 21 + 22 — LAS + Color Ramp Smoke</h1>
     <div>File: <span id="file-name">none — drop a .las file or generate</span></div>
     <div>Points: <span id="point-count">0</span></div>
     <div>Parse: <span id="parse-time">—</span></div>
     <div>FPS: <span id="fps">—</span></div>
+    <div style="margin-top: 10px;">
+      <label for="mode-select" style="font-size: 12px;">Color mode:</label><br>
+      <select id="mode-select" style="background: #222; color: #fff; border: 1px solid #555; padding: 4px; font: 12px monospace; margin-top: 4px;">
+        <option value="white">White (Ward 20)</option>
+        <option value="viridis" selected>Viridis (intensity)</option>
+        <option value="inferno">Inferno (intensity)</option>
+        <option value="grayscale">Grayscale (intensity)</option>
+        <option value="elevation">Elevation (Y axis)</option>
+        <option value="classification">Classification</option>
+        <option value="rgb">RGB direct</option>
+      </select>
+    </div>
     <div style="margin-top: 8px; color: #888;">
       <kbd>R</kbd> pause rotation
     </div>
