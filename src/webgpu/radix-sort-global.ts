@@ -316,10 +316,19 @@ export async function createGlobalSortPipelines(
 
   for (const s of shaders) {
     const module = device.createShaderModule({ code: s.code, label: s.label });
-    const getInfo = (module as any).compilationInfo ?? (module as any).getCompilationInfo;
-    const info = typeof getInfo === "function"
-      ? await getInfo.call(module)
-      : { messages: [] };
+    // WebGPU spec renamed compilationInfo() → getCompilationInfo() (Chrome 119+).
+    // Prefer new API, fall back to legacy, throw descriptively if neither.
+    const sm = module as GPUShaderModule & {
+      getCompilationInfo?: () => Promise<GPUCompilationInfo>;
+      compilationInfo?: () => Promise<GPUCompilationInfo>;
+    };
+    const getInfo = sm.getCompilationInfo ?? sm.compilationInfo;
+    if (!getInfo) {
+      throw new Error(
+        "GPUShaderModule has neither getCompilationInfo nor compilationInfo",
+      );
+    }
+    const info = await getInfo.call(sm);
     const errors = info.messages.filter((m: { type: string }) => m.type === "error");
     if (errors.length > 0) {
       const details = errors.map((e: { message: string }) => e.message).join("; ");

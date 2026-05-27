@@ -1,27 +1,18 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 20 + Ward 24 complete — 2026-05-27
+Ward 20 complete — 2026-05-27
 
 ## Current State
-**Epic 06 LiDAR Point Cloud Pivot — fundament etableret.** To wards complete på samme dag:
-
-- **Ward 20** leverede hardware Z-buffer point-pipeline med `RENDER_MODE` flag-mekanisme. Verificeret end-to-end i Chrome (50K tilted torus-points @ 120 FPS på MacBook Retina).
-- **Ward 24** migrerede 4 render-moduler (Ward 5/6/7/12) til `getCompilationInfo` API-pattern fra Ward 20's reference. Ægte runtime-fejl i splat-stack er fjernet, mock-baseret tech debt afdraget.
-
-Pivotens kerne-hypotese bekræftet: ingen SH, ingen covariance, ingen radix-sort i hot path, og det fungerer stadig. Smoke-page'en demonstrerer 3D depth-test visuelt (front-arc skygger bag-arc under rotation).
+**Epic 06 LiDAR Point Cloud Pivot — Ward 20 COMPLETE.** Hardware Z-buffer point-pipeline kører end-to-end i ægte Chrome (verificeret via `points-smoke.html` med 50K tilted torus-points @ 120 FPS). Ward 20 leverede en minimal `point-list` topologi shader + depth24plus attachment + RENDER_MODE flag-mekanisme. Pivotens kerne-hypotese er bekræftet: ingen SH, ingen covariance, ingen radix-sort i hot path, og det fungerer stadig.
 
 ### Active wards (parallelt arbejde tilladt — ingen vandfald)
-- **Ward 21** (LAS/LAZ Stream Ingestion) — Rust-tung, alle dependencies opfyldt, klar til Red-fase
-
-### Blocked (venter på upstream)
-- Ward 22 og 23 venter på Ward 21 (data-format) og hinanden
+- **Ward 21** (LAS/LAZ Stream Ingestion) — Rust-tung, kan startes
+- **Ward 24** (WebGPU API Migration & Tech Debt) — **HIGH PRIORITY**, fjerner ægte runtime-fejl i Ward 5/6/7/12 moduler; uafhængig af Ward 21 (rører kun shader-compile call sites)
+- Ward 22 og 23 venter på Ward 21 og 20 (deres respektive dependencies)
 
 ### Deferred
 - Ward 19 (Production Rendering for 3DGS) — koden bevares som regression-baseline under `RENDER_MODE="splats"`
-
-### Known Limitations
-- `src/errors/memory-pressure.ts:checkSceneMemory()` estimerer ~236B/element (3DGS-format). For LiDAR-points (~18B/element) er thresholden ekstremt konservativ — store LAS-filer vil tripppe den unødigt. Bør revisiteres som del af Ward 21 eller som separat micro-ward når LAS-budget skal etableres.
 
 ### Pre-pivot baseline (Wards 1-18 complete)
 18 wards komplet. First Light opnået. 184 tests (155 TS + 29 Rust). End-to-end pipeline: PLY → Rust parser (sigmoid opacity, log-space scale) → Worker bridge → GPU upload → depth key compute → global radix sort → 3DGS splat shader (covariance→conic→Gaussian falloff→SH DC color) → orbit camera. Draw budget 500K, sort-on-camera-change, FPS counter.
@@ -70,9 +61,13 @@ Pivotens kerne-hypotese bekræftet: ingen SH, ingen covariance, ingen radix-sort
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-- **Ward 21**: LAS/LAZ Stream Ingestion — Rust-tung, største ward i Epic 06 (~9 tests). `dependencies: [2, 3, 15, 16, 20]` — alle opfyldt. Næste arbejdsspor.
+WDD kører ikke vandfald — wards kan tages ud af rækkefølge så længe deres dependencies er opfyldt. Nuværende valgmuligheder:
 
-### Resolved tech debt (Ward 24)
-- ✅ `compilationInfo()` → `getCompilationInfo()` migration på 4 moduler
-- ✅ Ward 7's test skip-marked med dokumenteret rationale
-- 🟡 `wdd complete` regenererer PROGRESS.md uden at kende `deferred`-status — kræver manuel patch efter hver complete (dokumenteret i CLAUDE.md)
+- **Ward 24** (HIGH PRIO): WebGPU API Migration — fixer runtime-fejl i Ward 5/6/7/12 + Ward 7 test-failure. Lille scope (~10 tests). `dependencies: []`
+- **Ward 21**: LAS/LAZ Stream Ingestion — Rust-tung, største ward i Epic 06 (~9 tests). `dependencies: [2, 3, 15, 16, 20]` — alle opfyldt
+- Ward 22 og 23 venter på 21 (data) og 20 (pipeline) — kan ikke startes endnu
+
+### Discoverede issues (handled i Ward 24)
+- `compilationInfo()` → `getCompilationInfo()` spec-rename ramte alle render-moduler
+- `tests/ward-007/spherical-harmonics.test.ts` fejler pga. Ward 19's halv-port
+- `wdd complete` regenererer PROGRESS.md uden at kende `deferred`-status (kosmetisk)

@@ -129,6 +129,24 @@ Planned → Red (write failing tests) → Approved (QA1 reviews) → Gold (imple
 - Common WGSL mistakes that mocks miss: `atomic` write without `atomicStore`, undefined variable names, struct field mismatches
 - When writing WGSL: double-check all variable names match their declarations, all atomic buffers use atomic operations, all struct fields match their bindings
 
+### WebGPU API Compatibility (Ward 24)
+The WebGPU spec renamed `GPUShaderModule.compilationInfo()` → `getCompilationInfo()` in Chrome 119+. All shader-compile call sites MUST use this pattern to support both new and legacy browsers:
+```ts
+const sm = shaderModule as GPUShaderModule & {
+  getCompilationInfo?: () => Promise<GPUCompilationInfo>;
+  compilationInfo?: () => Promise<GPUCompilationInfo>;
+};
+const getInfo = sm.getCompilationInfo ?? sm.compilationInfo;
+if (!getInfo) {
+  throw new Error("GPUShaderModule has neither getCompilationInfo nor compilationInfo");
+}
+const info = await getInfo.call(sm);
+```
+Order matters: prefer the new API, fall back to legacy. Never use a soft-fallback that returns empty `{ messages: [] }` — silent fallback masks real shader-compilation failures.
+
+### WDD Tooling — PROGRESS.md Manual Override
+`wdd complete <N>` auto-regenerates PROGRESS.md but does not recognize `status: deferred` (defaults to "Planned"). After each `wdd complete`, manually verify and patch PROGRESS.md if a deferred ward is listed. Track this gap in `.wdd/CONTEXT.md` until the CLI is patched in a separate tooling-PR.
+
 ## Architecture Principles
 
 - **Rust owns data, JS/WebGPU owns pixels** — all scene data lives in Rust

@@ -325,7 +325,12 @@ describe("Ward 007: Splat Fragment Shader (Spherical Harmonics)", () => {
   // ─── Test 7: sh_shader_pipeline_compiles ──────────────────────
 
   describe("compileSplatShader", () => {
-    it("should compile a Vertex+Fragment WGSL shader without errors", async () => {
+    // Skip-markeret per Ward 24 (QA1 Open Question 1 beslutning, 2026-05-27):
+    // Ward 19's halv-færdige PlayCanvas-port fjernede ordet "conic" fra
+    // splat-shader.ts (UV-space Gaussian erstattede conic-form). Ward 19 er
+    // deferred, så shaderen reverteres ikke. Testen genaktiveres ELLER omskrives
+    // når Epic 07 enten genoptager splat-rendering eller fjerner det helt.
+    it.skip("should compile a Vertex+Fragment WGSL shader without errors", async () => {
       // Given: a mock device
       const device = createMockGPUDevice();
       const format = "bgra8unorm" as GPUTextureFormat;

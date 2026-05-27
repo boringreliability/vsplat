@@ -291,10 +291,20 @@ export async function compileSplatShader(
     label: "splat-3dgs-shader",
   });
 
-  // compilationInfo() may not exist on all implementations — guard it
-  const getInfo = (shaderModule as any).compilationInfo ?? (shaderModule as any).getCompilationInfo;
-  if (typeof getInfo === "function") {
-    const compilationInfo = await getInfo.call(shaderModule);
+  // WebGPU spec renamed compilationInfo() → getCompilationInfo() (Chrome 119+).
+  // Prefer new API, fall back to legacy, throw descriptively if neither.
+  const sm = shaderModule as GPUShaderModule & {
+    getCompilationInfo?: () => Promise<GPUCompilationInfo>;
+    compilationInfo?: () => Promise<GPUCompilationInfo>;
+  };
+  const getInfo = sm.getCompilationInfo ?? sm.compilationInfo;
+  if (!getInfo) {
+    throw new Error(
+      "GPUShaderModule has neither getCompilationInfo nor compilationInfo",
+    );
+  }
+  {
+    const compilationInfo = await getInfo.call(sm);
     const errors = compilationInfo.messages.filter(
       (m: { type: string }) => m.type === "error",
     );

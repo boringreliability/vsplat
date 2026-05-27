@@ -182,8 +182,19 @@ export async function createSortPipeline(
     label: "radix-sort-shader",
   });
 
-  // Validate shader compilation
-  const compilationInfo = await shaderModule.compilationInfo();
+  // WebGPU spec renamed compilationInfo() → getCompilationInfo() (Chrome 119+).
+  // Prefer new API, fall back to legacy, throw descriptively if neither.
+  const sm = shaderModule as GPUShaderModule & {
+    getCompilationInfo?: () => Promise<GPUCompilationInfo>;
+    compilationInfo?: () => Promise<GPUCompilationInfo>;
+  };
+  const getInfo = sm.getCompilationInfo ?? sm.compilationInfo;
+  if (!getInfo) {
+    throw new Error(
+      "GPUShaderModule has neither getCompilationInfo nor compilationInfo",
+    );
+  }
+  const compilationInfo = await getInfo.call(sm);
   const errors = compilationInfo.messages.filter(
     (m: { type: string }) => m.type === "error",
   );
