@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use crate::ply::{parse_header, PlyParser};
 use crate::ecs::world::World;
+use crate::las::LasParser;
 
 // ─── Global State ────────────────────────────────────────────────
 
@@ -158,6 +159,70 @@ pub fn get_sorted_indices_ptr() -> usize {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn get_sorted_indices_len() -> usize {
     with_world(0, |w| w.sorted_indices.len())
+}
+
+// ─── Ward 021: LAS FFI ───────────────────────────────────────────
+
+thread_local! {
+    static LAS_PARSER: RefCell<Option<LasParser>> = RefCell::new(None);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_init() {
+    LAS_PARSER.with(|cell| *cell.borrow_mut() = Some(LasParser::new()));
+}
+
+/// Parse a chunk. Returns number of point records emitted in this call.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_parse_chunk(data: &[u8]) -> Result<u32, String> {
+    LAS_PARSER.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let parser = borrow.as_mut().ok_or("LAS not initialized: call las_init() first".to_string())?;
+        let result = parser.parse_chunk(data).map_err(|e| format!("{:?}", e))?;
+        Ok(result.points_added)
+    })
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_positions_ptr() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.positions().as_ptr() as usize))
+}
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_positions_len() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.positions().len()))
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_intensity_ptr() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.intensity().as_ptr() as usize))
+}
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_intensity_len() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.intensity().len()))
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_rgb_ptr() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.rgb().as_ptr() as usize))
+}
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_rgb_len() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.rgb().len()))
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_classification_ptr() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.classification().as_ptr() as usize))
+}
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_classification_len() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.classification().len()))
+}
+
+/// Number of points parsed so far (positions.len() / 3)
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_point_count() -> usize {
+    LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.positions().len() / 3))
 }
 
 // ─── Tests ───────────────────────────────────────────────────────

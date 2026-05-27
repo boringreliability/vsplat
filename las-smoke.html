@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vsplat — Ward 21 LAS Smoke Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a14; overflow: hidden; font-family: system-ui, sans-serif; color: #fff; }
+    #canvas { width: 100vw; height: 100vh; display: block; }
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font: 13px/1.5 monospace;
+      max-width: 480px;
+    }
+    #hud h1 { font-size: 14px; margin-bottom: 8px; color: #8af; }
+    #hud kbd {
+      background: #333; padding: 2px 6px; border-radius: 3px;
+      border: 1px solid #555; font-size: 11px;
+    }
+    #drop-zone {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 16px 32px;
+      border: 2px dashed #555;
+      border-radius: 8px;
+      color: #888;
+      pointer-events: none;
+      font-size: 14px;
+    }
+    button {
+      background: #2a4a8a; color: white; border: none;
+      padding: 6px 14px; border-radius: 4px; cursor: pointer;
+      font: 12px monospace; margin-top: 8px;
+    }
+    button:hover { background: #3a5aaa; }
+    #error {
+      display: none;
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: #cc3333; padding: 16px 24px; border-radius: 8px;
+      max-width: 600px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <h1>Ward 21 — LAS Ingestion Smoke Test</h1>
+    <div>File: <span id="file-name">none — drop a .las file or generate</span></div>
+    <div>Points: <span id="point-count">0</span></div>
+    <div>Parse: <span id="parse-time">—</span></div>
+    <div>FPS: <span id="fps">—</span></div>
+    <div style="margin-top: 8px; color: #888;">
+      <kbd>R</kbd> pause rotation
+    </div>
+    <button id="generate-btn">Generér syntetisk helix LAS (50K points, PDRF 3 m. RGB)</button>
+  </div>
+  <div id="drop-zone">Drop a .las file here</div>
+  <div id="error"></div>
+  <script type="module" src="/src/app/las-smoke.ts"></script>
+</body>
+</html>

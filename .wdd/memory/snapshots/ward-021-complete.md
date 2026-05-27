@@ -1,30 +1,27 @@
 # Context — vsplat
 
 ## Last Updated
-Ward 21 complete — 2026-05-27
+Ward 20 + Ward 24 complete — 2026-05-27
 
 ## Current State
-**Epic 06 LiDAR Point Cloud Pivot — LAS-ingestion live.** Tre wards complete:
+**Epic 06 LiDAR Point Cloud Pivot — fundament etableret.** To wards complete på samme dag:
 
-- **Ward 20**: hardware Z-buffer point-pipeline + `RENDER_MODE` flag (50K torus @ 120 FPS)
-- **Ward 24**: WebGPU API migration på 4 moduler (`getCompilationInfo`)
-- **Ward 21**: LAS streaming parser i Rust + FFI + `LasBridge` worker bridge. Verificeret med syntetisk PDRF 3 helix @ 28M points/sekund (17× over budget). LAZ-filer detekteres og afvises med klar fejlbesked.
+- **Ward 20** leverede hardware Z-buffer point-pipeline med `RENDER_MODE` flag-mekanisme. Verificeret end-to-end i Chrome (50K tilted torus-points @ 120 FPS på MacBook Retina).
+- **Ward 24** migrerede 4 render-moduler (Ward 5/6/7/12) til `getCompilationInfo` API-pattern fra Ward 20's reference. Ægte runtime-fejl i splat-stack er fjernet, mock-baseret tech debt afdraget.
 
-Smoke-test `las-smoke.html` viser end-to-end pipeline: ArrayBuffer → Wasm parser → FFI → GPU → Ward 20's point-pipeline. Drag-drop af .las filer + syntetisk generator-knap.
+Pivotens kerne-hypotese bekræftet: ingen SH, ingen covariance, ingen radix-sort i hot path, og det fungerer stadig. Smoke-page'en demonstrerer 3D depth-test visuelt (front-arc skygger bag-arc under rotation).
 
 ### Active wards (parallelt arbejde tilladt — ingen vandfald)
-- **Ward 22** (Intensity Color-Ramp Mapping) — dependencies opfyldt (20, 21)
-- **Ward 25** (LAZ Decompression) — afdækket som **højværdi** efter Ward 21 smoke: alle reelle test-filer var .laz, ikke .las. USGS/Open Topography/NOAA distribuerer kun LAZ. Ward 25 bør prioriteres højt hvis vi vil have ægte brugsværdi.
+- **Ward 21** (LAS/LAZ Stream Ingestion) — Rust-tung, alle dependencies opfyldt, klar til Red-fase
 
-### Blocked
-- Ward 23 (20M scale) venter på 22
+### Blocked (venter på upstream)
+- Ward 22 og 23 venter på Ward 21 (data-format) og hinanden
 
 ### Deferred
 - Ward 19 (Production Rendering for 3DGS) — koden bevares som regression-baseline under `RENDER_MODE="splats"`
 
 ### Known Limitations
-- `src/errors/memory-pressure.ts:checkSceneMemory()` estimerer ~236B/element (3DGS-format). For LiDAR-points (~18B/element) er thresholden ekstremt konservativ — store LAS-filer vil tripppe den unødigt. Bør revisiteres når LAS+LAZ integration når `main.ts`.
-- LAS-smoke kører Wasm direkte i main thread (ikke Worker). Produktions-integration via `LasBridge` mangler `main.ts`-binding (kan være Ward 22's afsluttende step eller separat micro-ward).
+- `src/errors/memory-pressure.ts:checkSceneMemory()` estimerer ~236B/element (3DGS-format). For LiDAR-points (~18B/element) er thresholden ekstremt konservativ — store LAS-filer vil tripppe den unødigt. Bør revisiteres som del af Ward 21 eller som separat micro-ward når LAS-budget skal etableres.
 
 ### Pre-pivot baseline (Wards 1-18 complete)
 18 wards komplet. First Light opnået. 184 tests (155 TS + 29 Rust). End-to-end pipeline: PLY → Rust parser (sigmoid opacity, log-space scale) → Worker bridge → GPU upload → depth key compute → global radix sort → 3DGS splat shader (covariance→conic→Gaussian falloff→SH DC color) → orbit camera. Draw budget 500K, sort-on-camera-change, FPS counter.
@@ -73,12 +70,9 @@ Smoke-test `las-smoke.html` viser end-to-end pipeline: ArrayBuffer → Wasm pars
 - OPFS write bruger ikke progress callbacks endnu (tilføjes i Ward 3 integration)
 
 ## What Comes Next
-To valgmuligheder (kan tages parallelt):
+- **Ward 21**: LAS/LAZ Stream Ingestion — Rust-tung, største ward i Epic 06 (~9 tests). `dependencies: [2, 3, 15, 16, 20]` — alle opfyldt. Næste arbejdsspor.
 
-- **Ward 25** (LAZ Decompression) — anbefalet næste. Ward 21's smoke afslørede at ægte brugsdata næsten kun findes som .laz. Tre strategier: `laz-rs` crate på wasm32 (lavrisiko), manuel port, eller `laz-perf` via JS. ~1-3 dage afhængigt af strategi.
-- **Ward 22** (Intensity Color-Ramp Mapping) — TypeScript+WGSL. Tilføjer color-ramp texture og udvider Ward 20's bind group. ~1-2 dage.
-
-### Resolved tech debt
-- ✅ Ward 24: `compilationInfo()` → `getCompilationInfo()` på 4 moduler
-- ✅ Ward 21: LAZ silently-strip bug — nu eksplicit `LazCompressed` error variant
-- 🟡 `wdd complete` regenererer PROGRESS.md uden at kende `deferred`-status — kræver manuel patch efter hver complete
+### Resolved tech debt (Ward 24)
+- ✅ `compilationInfo()` → `getCompilationInfo()` migration på 4 moduler
+- ✅ Ward 7's test skip-marked med dokumenteret rationale
+- 🟡 `wdd complete` regenererer PROGRESS.md uden at kende `deferred`-status — kræver manuel patch efter hver complete (dokumenteret i CLAUDE.md)

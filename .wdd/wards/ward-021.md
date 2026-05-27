@@ -3,12 +3,12 @@ ward: 21
 revision: null
 name: "LAS/LAZ Stream Ingestion"
 epic: "point-cloud-pivot"
-status: "planned"
+status: "complete"
 dependencies: [2, 3, 15, 16, 20]
-layer: "rust"
+layer: "rust+typescript"
 estimated_tests: 9
 created: "2026-05-26"
-completed: null
+completed: "2026-05-27"
 ---
 # Ward 021: LAS/LAZ Stream Ingestion
 
@@ -32,16 +32,33 @@ Indfør LAS-format (ASPRS Public Header + Point Data Record) som primær input t
 - Tilstandsmaskine: `Header → Vlr → PointRecords → Done`
 - Support for PDRF (Point Data Record Format) 0, 1, 2, 3, 6, 7 (de mest udbredte)
 - Per-chunk output: appends til SoA-buffers via `bytemuck::cast_slice` hvor muligt
-- Scale + offset anvendes i parser: `x_f32 = (x_i32 as f32) * scale.x + offset.x`
+- Scale + offset anvendes via **f64-mellemmål** for at undgå præcisionstab på UTM-koordinater:
+  ```rust
+  x_f32 = (x_i32 as f64 * scale_x + offset_x) as f32
+  ```
+  (`scale_x` og `offset_x` parses som `f64` direkte fra LAS-headeren.)
 
 ### `crates/vsplat-core/src/las/laz.rs` (valgfri)
 - Trait `Decompressor` med to implementationer: `LasPassThrough` og `LazDecoder` (kun hvis laz-rs/laszip-rs viser sig levedygtig på Wasm)
 - LAZ flag detekteres fra header `point_data_format` high bit
-- Hvis LAZ-decoder ikke kan bygges til Wasm i Red-fasen: ward leverer kun LAS, og LAZ flyttes til future Ward 24
+- Hvis LAZ-decoder ikke kan bygges til Wasm i Red-fasen: ward leverer kun LAS, og LAZ flyttes til future Ward 25 (LAZ Decompression). Ward 24 er allerede taget af WebGPU API Migration.
 
 ### `crates/vsplat-core/src/ffi.rs` (udvidet)
-- `pub fn parse_las_chunk(ptr, len) -> ParseResult` — wasm-bindgen export
-- `pub fn las_buffers() -> LasBuffers` — eksponerer ptr+len for hver SoA-buffer
+Følger samme ptr/len-mønster som Ward 15 (wasm-bindgen kan ikke eksportere structs med slice-felter direkte). Eksporter pr. SoA-buffer:
+
+```rust
+#[wasm_bindgen] pub fn las_parse_chunk(ptr: *const u8, len: usize) -> ParseResult;
+#[wasm_bindgen] pub fn las_positions_ptr() -> *const f32;
+#[wasm_bindgen] pub fn las_positions_len() -> usize;
+#[wasm_bindgen] pub fn las_intensity_ptr() -> *const u16;
+#[wasm_bindgen] pub fn las_intensity_len() -> usize;
+#[wasm_bindgen] pub fn las_rgb_ptr() -> *const u8;       // length=0 hvis PDRF uden RGB
+#[wasm_bindgen] pub fn las_rgb_len() -> usize;
+#[wasm_bindgen] pub fn las_classification_ptr() -> *const u8;
+#[wasm_bindgen] pub fn las_classification_len() -> usize;
+```
+
+`ParseResult` er en simpel enum/struct med `points_added: u32` og `done: bool`. Ingen aggregeret `LasBuffers`-type — Ward 15-mønstret er etableret, og wasm-bindgen håndterer det renere.
 
 ### `src/worker/las-worker.ts` (ny)
 - Stream LAS-bytes fra OPFS → `parse_las_chunk` loop
@@ -63,9 +80,12 @@ Indfør LAS-format (ASPRS Public Header + Point Data Record) som primær input t
    - Chunk-størrelse aligned til `point_data_record_length` × 1024 (typisk 28-34 KB)
    - Parser kan suspendere mellem point records
 5. **Ward Boundary Contract Test:**
-   - SoA-layout udsendt fra Ward 21 skal være præcis det layout som Ward 20's point-shader binder
+   - `positions`-bufferens layout (interleaved XYZ f32) skal matche Ward 20's point-shader binding 0 (`splat_positions: array<f32>`)
+   - **Ward 21 ændrer IKKE Ward 20's bind group layout.** `intensity`, `rgb`, `classification` buffers eksisterer i Wasm-memory men bindes først af Ward 22 når color-ramp introduceres. Ward 20's pipeline forbliver med kun 1 binding.
 
 ## Tests
+
+### Rust (`cargo test`)
 
 | # | Test Name | Verifies |
 |---|-----------|----------|
@@ -76,8 +96,13 @@ Indfør LAS-format (ASPRS Public Header + Point Data Record) som primær input t
 | T5 | `scale_and_offset_applied_correctly` | Kendt i32-input × scale + offset matcher forventet f32 |
 | T6 | `streaming_parser_handles_partial_chunks` | Buffer splittet midt i et point record samles korrekt |
 | T7 | `unsupported_pdrf_returns_error` | PDRF 99 returnerer `LasError::UnsupportedFormat` |
-| T8 | `large_offset_avoids_f32_precision_loss` | UTM-koordinater (offset ~500000) bevarer mm-præcision |
-| T9 | `worker_emits_progress_events` | TS-side: progress callbacks fyrer per chunk |
+| T8 | `large_offset_avoids_f32_precision_loss` | UTM-koordinater (offset ~500000) bevarer mm-præcision (verificeret via f64-mellemmål) |
+
+### TypeScript (Vitest, `tests/ward-021/`)
+
+| # | Test Name | Verifies |
+|---|-----------|----------|
+| T9 | `worker_emits_progress_events` | Worker bridge fyrer progress-callbacks per chunk |
 
 ### Manual Visual Verification (AI Vision Gate)
 
@@ -89,9 +114,11 @@ Indfør LAS-format (ASPRS Public Header + Point Data Record) som primær input t
 
 ## Must NOT
 - Implementere intensity-color mapping (det er Ward 22)
-- Implementere LAZ hvis laz-rs ikke kan bygges til `wasm32-unknown-unknown` i Red-fasen — skub til future ward i stedet for at hacke
+- Implementere LAZ hvis `laz-rs` ikke kan bygges til `wasm32-unknown-unknown` uden WASI-extensions inden for **2 timers forsøg** i Red-fasen — skub til Ward 25 (LAZ Decompression)
+- Ændre Ward 20's bind group layout — `intensity`/`rgb`/`classification` bindes først af Ward 22
 - Allokere mellemkopi i JS — Wasm-buffer → GPU buffer skal være zero-copy
 - Brække PLY-parser (regression-gate på Ward 3 tests)
+- Assert på elapsed tid i `cargo test` eller Vitest (timing-budget verificeres kun manuelt — log/print er OK)
 
 ## Must DO
 - Genbruge Ward 16's chunked-reader API
@@ -100,7 +127,7 @@ Indfør LAS-format (ASPRS Public Header + Point Data Record) som primær input t
 - Tilføje LAS-test-fixtures til `tests/ward-021/fixtures/` (små filer < 100 KB)
 
 ## Verification
-- T1-T9 grønne i `cargo test` og Vitest
-- V1-V3 visuelt verificeret med rigtige LAS-filer
-- QA1 reviewer LAZ-beslutning (in-scope vs. skub-til-ward-24)
-- Performance: 5M point LAS parses i < 3 sekunder på reference-maskine
+- T1-T8 grønne i `cargo test`, T9 grøn i Vitest
+- V1-V3 visuelt verificeret i browser med rigtige LAS-filer (kræver smoke-page eller `main.ts` integration — vurderes ved Gold)
+- QA1 reviewer LAZ-beslutning (in-scope vs. skub-til-Ward 25) baseret på 2-timers integration-budget
+- **V-perf (manuel, ikke automated):** 5M point LAS parses i under 3 sekunder på reference-maskine (M1/i5-12th). Måles via `performance.now()` i Worker, logges til konsol. Aldrig som assertion.
