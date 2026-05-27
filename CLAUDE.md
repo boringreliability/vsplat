@@ -1,4 +1,33 @@
-# CLAUDE.md — vsplat
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Identity
+
+**vsplat** is a browser-native 3D Gaussian Splatting Studio. Rust (compiled to WebAssembly via `wasm-pack`) owns all scene data; TypeScript drives WebGPU rendering and DOM interaction. See `.wdd/PROJECT.md` for the full identity statement and `DEPLOYMENT.md` for COOP/COEP/wasm MIME requirements.
+
+## Common Commands
+
+```bash
+# TypeScript tests (Vitest, Node env, WebGPU mocked)
+npm test                                  # run full suite
+npm run test:watch                        # watch mode
+npx vitest run tests/ward-019/            # run a single ward's tests
+npx vitest run tests/ward-019/production-rendering.test.ts   # single file
+npx vitest run -t "name fragment"         # filter by test name
+
+# Rust / wasm-pack (run from crates/vsplat-core/)
+cd crates/vsplat-core && cargo test       # native Rust tests
+cd crates/vsplat-core && cargo test <name># filter by test name fragment
+npm run build:wasm                        # wasm-pack build → ../../pkg/ (target=web)
+
+# Dev server (Vite, serves pkg/ statically, sets COOP/COEP headers)
+npm run build:wasm && npm run dev         # IMPORTANT: build wasm before first `dev`
+```
+
+The dev server **must** run with COOP/COEP headers for `crossOriginIsolated=true` (SharedArrayBuffer in Worker ↔ Main). Those headers are injected by middleware in `vite.config.ts`; do not bypass them.
+
+There is no lint script; type-checking happens implicitly via `vitest`/`tsc` consumption. Add `npx tsc --noEmit` manually if you need a standalone type check.
 
 ## Bootstrap Protocol
 **On every session start, read these files in order:**

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vsplat — Ward 20 Smoke Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a14; overflow: hidden; font-family: system-ui, sans-serif; color: #fff; }
+    #canvas { width: 100vw; height: 100vh; display: block; }
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font: 13px/1.5 monospace;
+      max-width: 380px;
+    }
+    #hud h1 { font-size: 14px; margin-bottom: 8px; color: #8af; }
+    #hud kbd {
+      background: #333; padding: 2px 6px; border-radius: 3px;
+      border: 1px solid #555; font-size: 11px;
+    }
+    #error {
+      display: none;
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: #cc3333; padding: 16px 24px; border-radius: 8px;
+      max-width: 600px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <h1>Ward 20 — Point Cloud Smoke Test</h1>
+    <div>Form: <span id="form-name">torus</span> · 10,000 points</div>
+    <div>Mode: <span id="mode-label">points</span></div>
+    <div>FPS: <span id="fps">—</span></div>
+    <div style="margin-top: 8px; color: #888;">
+      <kbd>M</kbd> toggle mode · <kbd>R</kbd> pause rotation
+    </div>
+    <div style="margin-top: 8px; color: #6b6;">
+      Expect: torus 3D-form synlig, forside skjuler bagside (depth-test virker)
+    </div>
+  </div>
+  <div id="error"></div>
+  <script type="module" src="/src/app/points-smoke.ts"></script>
+</body>
+</html>

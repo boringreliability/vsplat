@@ -3,13 +3,19 @@ ward: 19
 revision: 1
 name: "Production Rendering"
 epic: "production-hardening"
-status: "in-progress"
+status: "deferred"
 dependencies: [7, 8, 12, 18]
 layer: "typescript+wgsl"
 estimated_tests: 8
 created: "2026-04-05"
+deferred: "2026-05-26"
+deferred_reason: "Epic 06 (LiDAR Point Cloud Pivot) erstatter Gaussian Splat rendering med en simpel point-pipeline. Ward 19's mål om at matche SuperSplat-kvalitet bortfalder. Splats-mode bevares som regression-baseline indtil Epic 07 fjerner den endeligt."
 ---
-# Ward 019: Production Rendering
+# Ward 019: Production Rendering — DEFERRED
+
+> **Status (2026-05-26):** Dette ward er udskudt. Projektet pivoterer til LiDAR Point Cloud rendering via Epic 06. Den specifikation der følger nedenfor afspejler det oprindelige Gaussian Splatting scope og bevares som historisk reference. Den faktiske splat-rendering-implementation som blev påbegyndt forbliver i koden under feature flag `RENDER_MODE = "splats"` (se Ward 20) som regression-baseline.
+
+
 
 ## Problem Statement
 
