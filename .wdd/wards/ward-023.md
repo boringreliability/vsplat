@@ -3,7 +3,7 @@ ward: 23
 revision: null
 name: "Hardware Z-Buffer Hardening (Massive Scale)"
 epic: "point-cloud-pivot"
-status: "planned"
+status: "gold"
 dependencies: [9, 20, 21, 22]
 layer: "typescript+wgsl"
 estimated_tests: 8
@@ -23,29 +23,59 @@ Ward 20-22 har bevist at hele point-pipelinen fungerer; nu bringer vi den til 20
 - Ward 19: lessons learned om vertex shader culling i clip-space
 
 ## Outputs
-### `src/webgpu/point-shader.ts` (udvidet)
-- Perspektiv-korrekt point size: `point_size_px = base_size_world / clip_w` clampet til `[1.0, max_size_px]`
-- Per-vertex clip-space frustum cull: `if (any(abs(ndc.xyz) > 1.0)) { /* emit zero-size point */ }`
-- Density-aware sizing: uniform `{ density_factor }` baseret på scene-bounds vs viewport
 
-### `src/webgpu/point-pipeline.ts` (udvidet)
-- Batch-rendering: `drawIndirect` med indirect buffer pr. batch (200K-500K points/batch)
-- Bind group cache for at undgå allocation pr. batch
+### `src/webgpu/colored-point-pipeline.ts` (udvidet — IKKE Ward 20's white pipeline)
+Ward 23's perspektiv-korrekt point size + clip-space cull rammer **kun** Ward 22's colored pipeline (LiDAR-modes). Ward 20's white pipeline er regression-baseline og forbliver simpel (`point_size = 1.0` implicit).
 
-### `src/webgpu/radix-sort.ts` (slettet eller flyttet)
-- Modulet flyttes til `src/webgpu/_archived/radix-sort.ts` med kommentar
-- Alle Ward 12-tests forbliver grønne via separat compile-target eller markeres som "splats-only"
-- `main.ts` har ingen reference til radix-sort i "points"-mode
+**Arkitektur-beslutning (låst i spec, ikke Gold):**
+Vi skifter Ward 22's `point-list` topology til **instanced billboard-quads via triangle-list**. WGSL eksponerer ikke `point_size` (fjernet fra spec), så ægte variabel point-size kræver quad-baseret rendering.
+
+- `primitive.topology: "triangle-list"`
+- Vertex shader bruger `@builtin(vertex_index)`:
+  ```wgsl
+  let point_idx = vi / 6u;           // 6 vertices per quad (2 triangles)
+  let corner_idx = vi % 6u;          // 0..5 selects corner offset
+  let corner = QUAD_CORNERS[corner_idx]; // ±1 in (x,y)
+  ```
+- Perspektiv-korrekt size — alle størrelser i **pixels**, konverteres til clip-space rundt om quad-corner:
+  ```
+  size_px = clamp(base_size_px / clip_w * density_factor, 1.0, max_size_px)
+  size_clip = size_px / viewport_px * 2.0   // factor 2 fordi NDC spænder [-1, 1]
+  ```
+  CPU-reference helper `computePointSize(clip_w, params): number` returnerer altid PIXELS.
+- Per-vertex frustum cull: kvadratens center culles hvis `any(abs(ndc.xy) > 1.0 + size_in_ndc)`. Culled point emitterer NaN-position → GPU skipper alle 4 vertices.
+- Uniform udvidet med `{ base_size_px, max_size_px, density_factor, viewport_px, _pad }` (32 bytes total med padding)
 
 ### `src/render/batch-manager.ts` (ny)
-- `BatchManager.subdivide(positions: Float32Array, maxPerBatch: number): Batch[]`
-- Bruger spatial subdivision (octree-niveau 2 = 64 batches max for 20M points)
-- Pr. batch: `BoundingBox`, `offset`, `count`
-- Brugt af render-loop til at filtrere batches mod camera frustum CPU-side
+- `BatchManager.subdivide(positions: Float32Array, maxPerBatch: 250_000): Batch[]`
+- **k-d tree subdivision** (longest-axis median split, max 6 niveauer = max 64 leaves). LiDAR-data er ofte fundamentalt 2D (street-scan) eller flade-domineret — k-d giver balancerede splits hvor octree ville have mange tomme blade.
+- Tomme blade udelades fra output-array.
+- Pr. batch: `BoundingBox { min: [x,y,z], max: [x,y,z] }`, `firstPoint: number`, `pointCount: number`.
 
-### `src/app/main.ts` (udvidet)
+### Render-loop batching (i `las-smoke.ts`)
+- **Én delt bind group** på tværs af alle batches — samme positions/intensity/rgb/classification buffers, kun draw-range varieres.
+- For hver visible batch: `pass.draw(batch.pointCount * 6, 1, batch.firstPoint * 6, 0)` (faktor 6 for triangle-list-quad-vertices).
+- **Ingen `drawIndirect`** — CPU kender alle parametre, GPU-buffer-roundtrip er unødig overhead.
+
+### `src/render/adaptive-density.ts` (ny)
+- `class AdaptiveDensityThrottler` med dependency-injected `getTime: () => number`
+- `recordFrame(): void` opdaterer rolling avg over 30/60 frames
+- `factor(): number` returnerer aktuel density_factor (uploades til uniform)
+- Sikrer T7/T8 deterministiske via mock clock
+
+### `src/app/las-smoke.ts` (udvidet — IKKE Ward 18's main.ts)
 - Stat overlay: FPS, visible batches / total batches, drawn points / total points
-- Adaptive throttling: hvis FPS < 25, reducer `density_factor` for at vise færre points dynamisk
+- Slider for `base_size_px` (0.5–4.0)
+- Throttler kobles til render-loop
+
+### `src/render/frustum-cull.ts` (ny — udvider Ward 9)
+- `cullBatch(aabb: BoundingBox, planes: Float32Array): boolean`
+- Returnerer `true` hvis AABB er helt udenfor frustum (skal cullles), `false` ellers
+- Genbruger Ward 9's `extractFrustumPlanes` til at producere `planes` fra view-proj-matrix
+- Plane-AABB-test: for hver plane, find AABB's "negative vertex" (det hjørne længst i plane-normal-retning) og test om det er bag planet
+
+### `src/webgpu/radix-sort-*.ts` — STATUS QUO
+Modulet rør **ikke**. Ward 20 bypassede allerede radix-sort i points-mode; Ward 23 ændrer ikke det design. Ward 12's radix-sort tests forbliver grønne uden ændringer. Sletning/flytning er Epic 07's beslutning.
 
 ## Specification
 1. **Hvorfor depth-test erstatter sort:**
@@ -57,15 +87,24 @@ Ward 20-22 har bevist at hele point-pipelinen fungerer; nu bringer vi den til 20
    - `base_size` opdateres pr. frame fra UI slider (0.5–4.0)
    - `density_factor` opdateres adaptivt (se §5)
 3. **CPU-side coarse cull:**
-   - For hver batch: test AABB mod frustum-planes (Ward 9 frustum kode)
-   - Skip `drawIndirect` for batches udenfor frustum
-4. **`drawIndirect` parametre:**
-   - Indirect buffer pr. batch indeholder `{vertexCount, instanceCount=1, firstVertex, firstInstance=0}`
-   - GPU-side validation: `vertexCount` ≤ `batch.count`
+   - For hver batch: test AABB mod frustum-planes (Ward 9 frustum-helper)
+   - Skip `draw()`-kald for batches udenfor frustum
+4. **Draw call-strategi:**
+   - Direkte `pass.draw(vertexCount, 1, firstVertex, 0)` — ingen `drawIndirect`
+   - CPU kender batch-params (offset, count) → ingen GPU-buffer-roundtrip nødvendig
+   - `drawIndirect` ville kun give gevinst hvis GPU-compute-shader producerede draw-params (potentiel Epic 07 GPU-cull optimering)
 5. **Adaptive density (anti-jank):**
-   - Frame-tid måles via `performance.now()` diff
-   - Hvis snit-frame-tid > 33ms over 30 frames: `density_factor *= 0.95`
-   - Hvis snit-frame-tid < 16ms over 60 frames: `density_factor *= 1.05` (op til 1.0)
+   - Frame-tid måles via injiceret `getTime` (default `performance.now`)
+   - Rolling avg: snit over sidste 30 frames
+   - Hvis snit > 33ms: `density_factor *= 0.95`
+   - Hvis snit < 16ms over 60 frames: `density_factor *= 1.05` (clamp til 1.0)
+   - Shader anvender ved at droppe points hvor `hash(point_idx) > density_factor`. Hash-funktion (reference-impl):
+     ```wgsl
+     fn point_hash(idx: u32) -> f32 {
+         return fract(sin(f32(idx) * 12.9898) * 43758.5453);
+     }
+     ```
+     Pseudo-random men deterministisk pr. frame, giver jævn spatial dropping. Trade-off: ujævn density visuelt, men opretholder spatial coverage.
 6. **Ward Boundary Contract Test:**
    - Batch-output fra `BatchManager.subdivide` skal dække ALLE input-points uden duplikater (sum af `count` = total)
 
@@ -73,31 +112,33 @@ Ward 20-22 har bevist at hele point-pipelinen fungerer; nu bringer vi den til 20
 
 | # | Test Name | Verifies |
 |---|-----------|----------|
-| T1 | `radix_sort_not_invoked_in_points_mode` | "points"-mode render loop: 0 calls til radix-sort modul |
-| T2 | `point_size_clamps_to_max` | Punkter meget tæt på camera: `point_size === max_size_px` |
-| T3 | `point_size_minimum_one_pixel` | Punkter langt væk: `point_size === 1.0` |
-| T4 | `clip_space_cull_zeroes_offscreen_points` | Vertex med `abs(ndc.xy) > 1.1`: `point_size === 0` |
-| T5 | `batch_subdivide_covers_all_points` | Sum af alle batch.count === input total (lossless) |
-| T6 | `frustum_culled_batch_skips_draw` | Batch udenfor frustum: ingen `drawIndirect`-call |
-| T7 | `adaptive_density_decreases_on_low_fps` | Simuleret 20fps over 30 frames: `density_factor < 1.0` |
-| T8 | `adaptive_density_recovers_on_high_fps` | Simuleret 60fps over 60 frames efter throttling: `density_factor` trender opad |
+| T1 | `radix_sort_remains_bypassed_in_points_mode` | **Regression guard for Ward 20 T4** — sikrer Ward 23's ændringer ikke genintroducerer radix-sort i hot path |
+| T2 | `compute_point_size_clamps_to_max` | CPU-reference helper: punkter meget tæt på camera (small `clip_w`): `point_size === max_size_px` |
+| T3 | `compute_point_size_minimum_one_pixel` | CPU-reference (pixel-units): punkter langt væk → `point_size === 1.0` (1 pixel floor) |
+| T4 | `aabb_outside_frustum_skipped_by_cull` | CPU-side `cullBatch(aabb, frustumPlanes)` returnerer `true` for AABB udenfor frustum, `false` indenfor |
+| T5 | `batch_subdivide_covers_all_points` | Sum af alle batch.pointCount === input total (lossless coverage) |
+| T6 | `kd_tree_subdivision_balances_leaves` | Median-split sikrer at ingen leaf indeholder > 2× medianen af andre leaves |
+| T7 | `adaptive_density_decreases_on_low_fps` | `AdaptiveDensityThrottler` med mock clock: simuleret 33ms+ avg over 30 frames → `factor() < 1.0` |
+| T8 | `adaptive_density_recovers_on_high_fps` | Mock clock: 16ms- avg over 60 frames efter throttling → `factor()` trender opad mod 1.0 |
 
 ### Manual Visual Verification (AI Vision Gate)
 
 | # | Check | Expected Result |
 |---|-------|-----------------|
-| V1 | Indlæs 20M+ point LAS | Render starter < 5 sekunder efter parse done |
+| V1 | Indlæs 20M+ point LAS | **Parse < 1s** (Ward 21 budget); **GPU upload < 3s** (CPU rotation re-uploads 20M × 12B = 240MB per frame ved 60fps requires staged upload). Total visible-first-frame < 5s. |
 | V2 | Roter kamera frit | 30+ FPS stabilt, ingen system-hang |
 | V3 | Zoom helt ind | Tætte points fylder pixels — ingen sub-pixel disco |
 | V4 | Zoom helt ud | Hele sky synlig, points 1px, ingen popping |
 | V5 | Pan til kant af scene | Off-screen batches skip'pet (synlig FPS-stigning) |
-| V6 | Toggle "splats"-mode (regression) | Ward 19's 142K cactus virker stadig |
+| V6 | Toggle "white" mode i las-smoke (regression for Ward 20) | Hvide 1px points renderer uden ændringer |
 
 ## Must NOT
 - Genindføre alpha-blending i "points"-mode (depth handler visibility)
-- Behold radix-sort kald i "points"-render loop
+- Ændre Ward 20's white pipeline (regression-baseline forbliver simpel point-list med implicit 1px size)
+- Slette eller flytte `radix-sort-*.ts` — Ward 20 har allerede bypassed dem i points-mode; sletning hører til Epic 07
+- Røre `src/app/main.ts` — det er Ward 18/19's 3DGS app shell, ikke Epic 06's LiDAR-mode
 - Lave one-shot draw call på > 2M vertices (driver-timeout risk)
-- Brække Ward 12-tests (radix-sort tests skal fortsat være grønne)
+- Brække Ward 12-tests eller Ward 22-tests
 
 ## Must DO
 - Fjern radix-sort fra hot path i "points"-mode

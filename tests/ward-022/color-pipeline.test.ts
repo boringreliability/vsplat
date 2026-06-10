@@ -134,13 +134,15 @@ describe("Ward 022: Color Ramp Mapping", () => {
 
   // ─── T5: colored_pipeline_bind_group_layout_has_correct_bindings
 
-  it("T5: Given: compileColoredPointPipeline — When: pipeline kompileres — Then: bind group layout har 7 specifikke bindings", async () => {
+  it("T5: Given: compileColoredPointPipeline — When: pipeline kompileres — Then: bind group layout har Ward 22's 7 specifikke bindings (Ward 23 må tilføje flere)", async () => {
     const device = createMockDevice();
     await compileColoredPointPipeline(device, "bgra8unorm");
 
     expect(capturedBgls.length).toBeGreaterThanOrEqual(1);
     const bgl = capturedBgls[0]!;
-    expect(bgl.entries.length).toBe(7);
+    // Ward 22's kontrakt: minimum 7 bindings (0-6) med specifikke roller. Ward 23
+    // udvider med binding 7 (size uniform) — acceptér supersettet.
+    expect(bgl.entries.length).toBeGreaterThanOrEqual(7);
 
     // Binding 0-3: positions, intensity, rgb, classification (alle read-only-storage, VERTEX)
     for (let i = 0; i < 4; i++) {

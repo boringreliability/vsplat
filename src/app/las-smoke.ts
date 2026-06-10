@@ -30,6 +30,7 @@ import {
   repackRgbToRgba,
   uploadColorRamp,
 } from "../webgpu/color-ramps.js";
+import { AdaptiveDensityThrottler } from "../render/adaptive-density.js";
 
 const POINT_COUNT_SYNTH = 50_000;
 
@@ -241,6 +242,11 @@ let intensityBuffer: GPUBuffer | null = null;
 let rgbBuffer: GPUBuffer | null = null;
 let classificationBuffer: GPUBuffer | null = null;
 let uniformBuffer: GPUBuffer | null = null;
+let sizeUniformBuffer: GPUBuffer | null = null;  // Ward 23
+
+let baseSizePx = 2.0;
+let viewportPx = 1000;
+const throttler = new AdaptiveDensityThrottler();
 
 // Textures + sampler (created once, ramp swapped on mode change)
 let rampTexture: GPUTexture | null = null;
@@ -319,10 +325,21 @@ function updateRampAndUniform(mode: UiMode): void {
   device.queue.writeBuffer(uniformBuffer, 0, uni.toArrayBuffer());
 }
 
+/** Ward 23: write size uniform (4 scalars, 16 bytes). */
+function writeSizeUniform(): void {
+  if (!device || !sizeUniformBuffer) return;
+  const buf = new Float32Array(4);
+  buf[0] = baseSizePx;
+  buf[1] = 32.0;
+  buf[2] = throttler.factor();
+  buf[3] = viewportPx;
+  device.queue.writeBuffer(sizeUniformBuffer, 0, buf);
+}
+
 async function uploadScene(parsed: ParsedLas): Promise<void> {
   if (!device || !pointPipeline || !coloredPipeline) throw new Error("device not ready");
 
-  // Normalize positions to clip space
+  // Normalize positions to clip space + scratch buffer for CPU rotation per frame
   normalizedSource = normalizePositions(parsed.positions);
   scratch = new Float32Array(normalizedSource.length);
   scratch.set(normalizedSource);
@@ -390,7 +407,7 @@ async function uploadScene(parsed: ParsedLas): Promise<void> {
     entries: [{ binding: 0, resource: { buffer: positionsBuffer } }],
   });
 
-  // Colored bind group (Ward 22 — all 7 bindings)
+  // Colored bind group (Ward 22 + Ward 23 — 8 bindings incl. size uniform)
   coloredBindGroup = device.createBindGroup({
     label: "las-colored-bg",
     layout: coloredPipeline.bindGroupLayout,
@@ -402,6 +419,7 @@ async function uploadScene(parsed: ParsedLas): Promise<void> {
       { binding: 4, resource: rampTexture!.createView({ dimension: "1d" }) },
       { binding: 5, resource: sampler! },
       { binding: 6, resource: { buffer: uniformBuffer! } },
+      { binding: 7, resource: { buffer: sizeUniformBuffer! } },
     ],
   });
 
@@ -445,17 +463,35 @@ async function main(): Promise<void> {
     size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+  sizeUniformBuffer = device.createBuffer({
+    label: "size-uniform",
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  viewportPx = canvas.width;
+  writeSizeUniform();
 
   const fileNameEl = document.getElementById("file-name")!;
   const pointCountEl = document.getElementById("point-count")!;
   const parseTimeEl = document.getElementById("parse-time")!;
   const fpsEl = document.getElementById("fps")!;
   const modeSelect = document.getElementById("mode-select") as HTMLSelectElement;
+  const sizeSlider = document.getElementById("size-slider") as HTMLInputElement;
+  const sizeValueEl = document.getElementById("size-value")!;
+  const batchCountEl = document.getElementById("batch-count")!;
+  const densityFactorEl = document.getElementById("density-factor")!;
 
   modeSelect.addEventListener("change", () => {
     currentUiMode = modeSelect.value as UiMode;
     updateRampAndUniform(currentUiMode);
   });
+
+  sizeSlider.addEventListener("input", () => {
+    baseSizePx = parseFloat(sizeSlider.value);
+    sizeValueEl.textContent = baseSizePx.toFixed(1);
+    writeSizeUniform();
+  });
+  batchCountEl.textContent = "n/a (batches CPU-tested, not smoke-integrated)";
 
   canvas.addEventListener("dragover", e => e.preventDefault());
   canvas.addEventListener("drop", async e => {
@@ -523,6 +559,14 @@ async function main(): Promise<void> {
     }
 
     if (positionsBuffer && normalizedSource && scratch && currentPointCount > 0) {
+      throttler.recordFrame();
+      densityFactorEl.textContent = throttler.factor().toFixed(2);
+      writeSizeUniform();
+
+      // CPU rotation: re-upload roterede positions per frame.
+      // GPU-side rotation forsøgt men brækkede ved 10M+ points (præsentations-
+      // latency / hak-hak). CPU-path er langsommere på papir men producerer
+      // jævn frame-pacing.
       if (!rotationPaused) {
         rotationAngle += dt * 0.0005;
         rotateY(scratch, normalizedSource, rotationAngle);
@@ -540,8 +584,7 @@ async function main(): Promise<void> {
           radixSort: radixStub,
         });
       } else {
-        // Colored pipeline: encode manually since Ward 20's encodePointRenderPass
-        // is tied to PointPipeline. Same depth + color clear setup.
+        // Ward 23 colored pipeline: triangle-list quad-billboards (6 vertices/point)
         const pass = encoder.beginRenderPass({
           label: "las-colored-pass",
           colorAttachments: [{
@@ -556,7 +599,7 @@ async function main(): Promise<void> {
         });
         pass.setPipeline(coloredPipeline!.pipeline);
         pass.setBindGroup(0, coloredBindGroup!);
-        pass.draw(currentPointCount);
+        pass.draw(currentPointCount * 6);
         pass.end();
       }
       device!.queue.submit([encoder.finish()]);

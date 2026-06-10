@@ -15,13 +15,14 @@ export interface ColoredPointPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
+// Ward 23: triangle-list topology with 6-vertex quads per point.
+// WGSL no longer exposes @builtin(point_size), so variable point sizes require
+// quad-based billboards. Each point becomes a 2-triangle quad at clip-space center,
+// sized perspective-correct by `base_size_px / clip_w * density_factor`.
 const COLORED_POINT_SHADER_WGSL = /* wgsl */ `
 struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) intensity_norm: f32,
-  // u32 outputs MUST be flat-interpolated (WGSL spec — integers cannot be linearly
-  // interpolated across a primitive). For point-list topology this is moot, but the
-  // WGSL validator requires the attribute on all integer locations.
   @location(1) @interpolate(flat) classification: u32,
   @location(2) rgb: vec3f,
 };
@@ -33,19 +34,34 @@ struct ColorUniform {
   _pad: u32,
 };
 
+struct SizeUniform {
+  base_size_px: f32,
+  max_size_px: f32,
+  density_factor: f32,
+  viewport_px: f32,
+};
+
 @group(0) @binding(0) var<storage, read> positions: array<f32>;
-@group(0) @binding(1) var<storage, read> intensities: array<u32>; // u16 values packed 2-per-u32
-@group(0) @binding(2) var<storage, read> rgb_buffer: array<u32>;  // RGBA8 packed
-@group(0) @binding(3) var<storage, read> classifications: array<u32>; // u8 values packed 4-per-u32
+@group(0) @binding(1) var<storage, read> intensities: array<u32>;
+@group(0) @binding(2) var<storage, read> rgb_buffer: array<u32>;
+@group(0) @binding(3) var<storage, read> classifications: array<u32>;
 @group(0) @binding(4) var ramp_tex: texture_1d<f32>;
 @group(0) @binding(5) var ramp_sampler: sampler;
 @group(0) @binding(6) var<uniform> u: ColorUniform;
+@group(0) @binding(7) var<uniform> s: SizeUniform;
 
 const VIEW_PROJ = mat4x4f(
   vec4f(1.0, 0.0, 0.0, 0.0),
   vec4f(0.0, 1.0, 0.0, 0.0),
   vec4f(0.0, 0.0, 0.5, 0.0),
   vec4f(0.0, 0.0, 0.5, 1.0),
+);
+
+// Quad corner offsets for 2-triangle quad (6 vertices, triangle-list)
+// Order: tri1=(BL,BR,TL), tri2=(TL,BR,TR)
+const QUAD_CORNERS = array<vec2f, 6>(
+  vec2f(-1.0, -1.0), vec2f( 1.0, -1.0), vec2f(-1.0,  1.0),
+  vec2f(-1.0,  1.0), vec2f( 1.0, -1.0), vec2f( 1.0,  1.0),
 );
 
 fn read_intensity(idx: u32) -> u32 {
@@ -68,44 +84,72 @@ fn read_rgb(idx: u32) -> vec3f {
   return vec3f(r, g, b);
 }
 
+// Pseudo-random per-point hash for adaptive density dropping.
+fn point_hash(idx: u32) -> f32 {
+  return fract(sin(f32(idx) * 12.9898) * 43758.5453);
+}
+
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
-  let base = vi * 3u;
+  let point_idx = vi / 6u;
+  let corner_idx = vi % 6u;
+  let corner = QUAD_CORNERS[corner_idx];
+
+  let base = point_idx * 3u;
   let wx = positions[base + 0u];
   let wy = positions[base + 1u];
   let wz = positions[base + 2u];
 
   var out: VertexOutput;
-  out.position = VIEW_PROJ * vec4f(wx, wy, wz, 1.0);
 
-  // Compute intensity normalization (used in mode 0)
-  let raw_intensity = f32(read_intensity(vi));
+  // Density-based culling: drop point if hash > density_factor.
+  // Culled point emits NaN position -> GPU discards quad.
+  if (point_hash(point_idx) > s.density_factor) {
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);  // outside clip space [-1,1] → GPU clips
+    return out;
+  }
+
+  let clip_center = VIEW_PROJ * vec4f(wx, wy, wz, 1.0);
+
+  // Perspective-correct size in pixels, clamped [1.0, max_size_px]
+  let size_px = clamp(s.base_size_px / max(clip_center.w, 1.0e-6),
+                       1.0, s.max_size_px);
+  // Convert to NDC offset: pixels / viewport_px * 2 (NDC range is [-1,1])
+  let size_ndc = size_px / s.viewport_px * 2.0;
+
+  // Clip-space frustum cull: skip if quad center is outside expanded frustum.
+  let ndc_xy = clip_center.xy / max(clip_center.w, 1.0e-6);
+  if (any(abs(ndc_xy) > vec2f(1.0 + size_ndc))) {
+    out.position = vec4f(2.0, 2.0, 2.0, 1.0);  // outside clip space [-1,1] → GPU clips
+    return out;
+  }
+
+  out.position = vec4f(
+    clip_center.xy + corner * size_ndc * clip_center.w,
+    clip_center.z, clip_center.w,
+  );
+
+  let raw_intensity = f32(read_intensity(point_idx));
   out.intensity_norm = clamp((raw_intensity - u.min) / max(u.max - u.min, 1.0e-6), 0.0, 1.0);
-
-  // Elevation normalization (mode 3) reuses intensity_norm slot when mode=3
   if (u.mode == 3u) {
+    // Elevation: use original world-y (pre-rotation) so colors stay anchored to scene up-axis
     out.intensity_norm = clamp((wy - u.min) / max(u.max - u.min, 1.0e-6), 0.0, 1.0);
   }
 
-  out.classification = read_classification(vi);
-  out.rgb = read_rgb(vi);
+  out.classification = read_classification(point_idx);
+  out.rgb = read_rgb(point_idx);
   return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
   if (u.mode == 1u) {
-    // Classification: indexed palette lookup. Wrap to 32 entries.
     let idx = f32(in.classification % 32u) / 32.0 + (0.5 / 32.0);
-    // We use the SAME ramp texture (caller binds CLASS_PALETTE padded to 256
-    // or — preferred — a separate 32-entry texture. For simplicity v1 we
-    // sample the ramp_tex which is bound to either color-ramp OR class-palette.
     return textureSample(ramp_tex, ramp_sampler, idx);
   }
   if (u.mode == 2u) {
     return vec4f(in.rgb, 1.0);
   }
-  // mode 0 (intensity) and mode 3 (elevation) both use intensity_norm + ramp
   return textureSample(ramp_tex, ramp_sampler, in.intensity_norm);
 }
 `;
@@ -146,6 +190,8 @@ export async function compileColoredPointPipeline(
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "1d" } },
       { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
       { binding: 6, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      // Ward 23: size uniform (base_size_px, max_size_px, density_factor, viewport_px)
+      { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
     ],
   });
 
@@ -159,7 +205,8 @@ export async function compileColoredPointPipeline(
     layout: pipelineLayout,
     vertex: { module: shaderModule, entryPoint: "vs_main" },
     fragment: { module: shaderModule, entryPoint: "fs_main", targets: [{ format }] },
-    primitive: { topology: "point-list" },
+    // Ward 23: triangle-list med quad-billboards (6 vertices/point)
+    primitive: { topology: "triangle-list" },
     depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
   } as GPURenderPipelineDescriptor);
 
