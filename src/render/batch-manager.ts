@@ -117,3 +117,24 @@ export class BatchManager {
     return { positions: reordered, batches, permutation };
   }
 }
+
+/**
+ * Anvend `SubdivisionResult.permutation` på en parallel attribut-array.
+ *
+ * `subdivide` pakker positions om, så intensity/rgb/classification SKAL følge
+ * med — ellers får hvert punkt en anden farve end sin egen. `stride` er antal
+ * elementer per punkt (1 for intensity/classification, 4 for RGBA).
+ */
+export function permuteAttribute<T extends Uint8Array | Uint16Array | Uint32Array | Float32Array>(
+  src: T,
+  permutation: Uint32Array,
+  stride: number,
+): T {
+  const out = new (src.constructor as new (len: number) => T)(permutation.length * stride);
+  for (let i = 0; i < permutation.length; i++) {
+    const from = permutation[i]! * stride;
+    const to = i * stride;
+    for (let k = 0; k < stride; k++) out[to + k] = src[from + k]!;
+  }
+  return out;
+}

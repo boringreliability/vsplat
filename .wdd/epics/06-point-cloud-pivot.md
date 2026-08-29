@@ -16,7 +16,7 @@ Transformere vsplat-motoren fra en beregningstung 3D Gaussian Splatting-viewer t
 | 20 | The Point Cloud Shader & Pipeline Clean | complete |
 | 21 | LAS/LAZ Stream Ingestion | complete |
 | 22 | Intensity Color-Ramp Mapping | complete |
-| 23 | Hardware Z-Buffer Hardening (Massive Scale) | gold — afventer QA1 |
+| 23 | Hardware Z-Buffer Hardening (Massive Scale) | complete |
 | 25 | LAZ Decompression | complete |
 
 ## Integration Points

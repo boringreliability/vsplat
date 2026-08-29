@@ -3,12 +3,12 @@ ward: 23
 revision: null
 name: "Hardware Z-Buffer Hardening (Massive Scale)"
 epic: "point-cloud-pivot"
-status: "gold"
+status: "complete"
 dependencies: [9, 20, 21, 22]
 layer: "typescript+wgsl"
-estimated_tests: 8
+estimated_tests: 12
 created: "2026-05-26"
-completed: null
+completed: "2026-08-29"
 ---
 # Ward 023: Hardware Z-Buffer Hardening (Massive Scale)
 
@@ -158,3 +158,41 @@ Modulet rør **ikke**. Ward 20 bypassede allerede radix-sort i points-mode; Ward
 - Skal vi beholde "splats"-mode for længere, eller markere den til sletning i Epic 07?
 - Skal `BatchManager` bruge en eksisterende octree-impl, eller skal Ward 23 inkludere en minimal egen?
 - Er adaptive density acceptabel UX, eller foretrækker brugeren konsekvent men lavere baseline-density?
+
+## Close-out (2026-08-29)
+
+Warden lå i `gold` med 9 grønne tests, men var **ikke færdig**. To ting blev fundet ved gennemgangen mod spec'en før godkendelse:
+
+### 1. Batching var aldrig koblet til render-loopet
+
+`BatchManager` og `cullBatch` var unit-testede, men ingen af dem blev kaldt af `las-smoke.ts`. Render-loopet tegnede stadig hele scenen med ét `pass.draw(currentPointCount * 6)`, og HUD'en sagde det selv: `"n/a (batches CPU-tested, not smoke-integrated)"`. Det er præcis den "afkoblede funktion" Epic 06's mål advarer mod — og ét 20M-vertex draw call er selve den driver-timeout warden blev skrevet for at fjerne.
+
+Manglende led var et planlægningslag. Tilføjet som `src/render/draw-plan.ts`:
+
+- `planBatchDraws(batches, planes)` → synlige ranges + tællere, med **sammenlægning af nabo-batches** (8 synlige naboer bliver til ét draw call, ikke otte)
+- `drawArgsFor(range)` → `{ vertexCount, firstVertex }` med spec'ens faktor 6
+
+Render-loopet bruger nu én delt bind group og ét `draw()` per range, og HUD'en viser `synlige/total batches · tegnede/total punkter · antal draws`.
+
+**To fælder der blev lukket undervejs:**
+
+- **Attributter fulgte ikke permutationen.** `subdivide()` pakker positions om og returnerer en `permutation`, men intensity/rgb/classification blev uploadet i original rækkefølge — hvert punkt ville have fået et andet punkts farve. Tilføjet `permuteAttribute()` + T10.
+- **AABB'erne ville være forældede efter første frame.** Smoke-siden roterer punkterne på CPU'en, så batchenes AABB'er (beregnet ved upload) passer ikke til de roterede positioner. Løst ved at folde rotationen ind i frustummet i stedet: planes udtrækkes fra `VIEW_PROJ · rotY(angle)`, og batchene testes i deres egen uroterede model-space. `VIEW_PROJ` var hardkodet i WGSL-strengen og er nu eksporteret som `VIEW_PROJ_MATRIX`, hvorfra shader-literalen genereres — CPU og GPU kan ikke længere divergere.
+
+### 2. CPU-referencen og shaderen var uenige om `density_factor`
+
+`point-size.ts` hævdede i sin docstring at matche WGSL, og gangede størrelsen med `density_factor`. Shaderen gjorde det ikke — den bruger `density_factor` til at droppe punkter (`hash(idx) > factor`), som spec'ens §5 foreskriver. Spec'en modsiger sig selv: §2 og Outputs skriver faktoren ind i størrelsesformlen, §5 lader den styre dropping.
+
+Rettet så CPU-referencen matcher shaderen, altså **uden** density i størrelsen. Begrundelse: dropper man halvdelen af punkterne for at spare fill rate, vil man have de overlevende mindst lige så store — skrumper man dem også, åbner throttling huller dobbelt så hurtigt. T3b er skrevet om til at fastholde at de to er enige.
+
+### Tests
+
+12 grønne (spec'ens T1-T8 + T3b, T9, T9b, T10). Fuld suite: 205 TypeScript + 46 Rust.
+
+De tre nye tests er dem der ville have fanget afkoblingen: T9/T9b tester at planlægningen faktisk vælger og slår batches sammen, T10 at attributter følger deres punkter.
+
+### Visual Verification — mangler menneske, med ét forbehold
+
+V1 (20M punkter), V2 (30+ FPS under rotation) og V3 (zoom ind) kræver GPU og store filer.
+
+**V3 kan ikke verificeres i smoke-siden som den ser ud nu.** Dens `VIEW_PROJ` er identitet med en z-remap, og positionerne er forud-normaliseret til [-1, 1], så `clip_w` er altid 1.0. Perspektiv-korrekt størrelse er dermed en no-op der: alle punkter får `base_size_px`. Formlen og dens CPU-reference er korrekte og testede, men de får først effekt når en rigtig perspektiv-kamera-matrix kommer ind i point-stien. Det hører til `main.ts`-integrationen, ikke her.

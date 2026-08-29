@@ -15,6 +15,29 @@ export interface ColoredPointPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
+/**
+ * View-projection som shaderen bruger — column-major, samme konvention som
+ * resten af projektet (`mat[col * 4 + row]`).
+ *
+ * Positionerne er allerede normaliseret til [-1, 1] på CPU-siden, så det her er
+ * reelt identitet med en z-remap til WebGPU's [0, 1] dybdeområde. Den er
+ * eksporteret fordi Ward 23's CPU-side frustum cull SKAL bruge præcis samme
+ * matrix som shaderen — to kopier ville drive fra hinanden.
+ */
+export const VIEW_PROJ_MATRIX = new Float32Array([
+  1.0, 0.0, 0.0, 0.0,
+  0.0, 1.0, 0.0, 0.0,
+  0.0, 0.0, 0.5, 0.0,
+  0.0, 0.0, 0.5, 1.0,
+]);
+
+/** Formatér en column-major mat4 som WGSL `mat4x4f`-kolonner. */
+function wgslMat4(m: Float32Array): string {
+  const col = (c: number) =>
+    `  vec4f(${[0, 1, 2, 3].map(r => m[c * 4 + r]!.toFixed(1)).join(", ")})`;
+  return [0, 1, 2, 3].map(col).join(",\n");
+}
+
 // Ward 23: triangle-list topology with 6-vertex quads per point.
 // WGSL no longer exposes @builtin(point_size), so variable point sizes require
 // quad-based billboards. Each point becomes a 2-triangle quad at clip-space center,
@@ -51,10 +74,7 @@ struct SizeUniform {
 @group(0) @binding(7) var<uniform> s: SizeUniform;
 
 const VIEW_PROJ = mat4x4f(
-  vec4f(1.0, 0.0, 0.0, 0.0),
-  vec4f(0.0, 1.0, 0.0, 0.0),
-  vec4f(0.0, 0.0, 0.5, 0.0),
-  vec4f(0.0, 0.0, 0.5, 1.0),
+${wgslMat4(VIEW_PROJ_MATRIX)}
 );
 
 // Quad corner offsets for 2-triangle quad (6 vertices, triangle-list)
