@@ -4,7 +4,7 @@
 Ward 23 + 25 complete — 2026-08-29
 
 ## Current State
-**Epic 06 LiDAR Point Cloud Pivot — alle wards complete.** Seks wards:
+**Epic 06 LiDAR Point Cloud Pivot — alle wards complete, men epic'en er det ikke.** Seks wards:
 
 - **Ward 20**: hardware Z-buffer point-pipeline + `RENDER_MODE` flag
 - **Ward 24**: WebGPU API migration på 4 moduler
@@ -19,8 +19,12 @@ Smoke-test verificeret på Velodyne real-world LiDAR: **3.4M points @ 120 FPS i 
 
 **Ward 23 blev lukket efter en reel færdiggørelse, ikke et stempel.** Den lå i `gold` med grønne tests, men `BatchManager` og `cullBatch` var aldrig koblet til render-loopet — smoke-siden tegnede stadig alt i ét draw call. Manglende led var `src/render/draw-plan.ts`. Undervejs blev to fælder lukket: attributter fulgte ikke `subdivide()`'s permutation (hvert punkt ville have fået et andet punkts farve), og batchenes AABB'er ville være forældede under CPU-rotation (nu foldes rotationen ind i frustummet i stedet). Se ward-023.md's close-out.
 
+**Epic 06's completion criteria er dog IKKE opfyldt**, selvom alle dens wards er complete. To af dem står åbne:
+- *"En fuld LAS/LAZ fil kan parses via OPFS og uploade data direkte til WebGPU-buffers uden mellemliggende kopier i JS"* — smoke-siden holder hele filen i en JS `ArrayBuffer`, hvilket modsiger projektets egen constraint. `wasm-worker.ts` har desuden ingen LAS-håndtering: Ward 21's bridge sender `las-begin`/`las-chunk`/`las-end` ud i ingenting.
+- *"Scenen kan visualisere over 20 millioner punkter"* — `checkSceneMemory()` afviser 20M punkter længe før GPU'en gør.
+
 ### Active wards
-Ingen. Epic 06 er lukket.
+- **Ward 26** (LiDAR Production Path) — `status: red`. Flytter LiDAR-stien ind i `main.ts` med den rigtige I/O-model og lukker de to huller ovenfor. 10 tests skrevet, alle røde. Afventer QA1-gaten.
 
 ### Deferred
 - Ward 19 (Production Rendering for 3DGS) — koden bevares som regression-baseline under `RENDER_MODE="splats"`
