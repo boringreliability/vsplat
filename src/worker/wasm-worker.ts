@@ -1,19 +1,35 @@
 /**
  * Production Worker script for vsplat.
  *
- * Loads the Wasm module via wasm-bindgen JS glue, handles init/load/query-buffers/ping.
+ * Loads the Wasm module via wasm-bindgen JS glue, handles init/load/query-buffers/ping,
+ * plus Ward 26's LAS/LAZ protocol (`las-*`).
  * This is the real version of what Ward 15's tests mocked.
  */
 
 /// <reference lib="webworker" />
 
+import { createLasWorkerHandler, type LasWasmModule } from "./las-worker-handler.js";
+
 // Module state — set during init, used by all subsequent messages
 let mod: typeof import("../../pkg/vsplat_core.js") | null = null;
 let wasmMemory: WebAssembly.Memory | null = null;
+/** Ward 26: modtagersiden af Ward 21's LasBridge-protokol. Sat ved init. */
+let handleLas: ((msg: unknown) => void) | null = null;
 
 self.onmessage = async (event: MessageEvent) => {
   try {
     const msg = event.data;
+
+    // Ward 26: LAS/LAZ-beskederne har deres egen handler, så protokollen kan
+    // testes uden en rigtig Worker. Alt andet falder igennem til switch'en.
+    if (typeof msg?.type === "string" && msg.type.startsWith("las-")) {
+      if (!handleLas) {
+        self.postMessage({ type: "las-error", message: "Not initialized" });
+        return;
+      }
+      handleLas(msg);
+      return;
+    }
 
     switch (msg.type) {
       case "init": {
@@ -25,6 +41,31 @@ self.onmessage = async (event: MessageEvent) => {
         wasmMemory = exports.memory as WebAssembly.Memory;
         // Call our FFI init() to create the World
         mod.init();
+        // Eksplicit adapter frem for spread af module-namespacet: wasm-bindgen's
+        // eksporter er getters, og en spread ville tie stille hvis en mangler.
+        const m = mod;
+        const lasModule: LasWasmModule = {
+          memory: wasmMemory,
+          las_init: () => m.las_init(),
+          las_parse_chunk: (data) => m.las_parse_chunk(data),
+          las_point_count: () => m.las_point_count(),
+          las_compressed: () => m.las_compressed(),
+          las_positions_ptr: () => m.las_positions_ptr(),
+          las_positions_len: () => m.las_positions_len(),
+          las_intensity_ptr: () => m.las_intensity_ptr(),
+          las_intensity_len: () => m.las_intensity_len(),
+          las_rgb_ptr: () => m.las_rgb_ptr(),
+          las_rgb_len: () => m.las_rgb_len(),
+          las_classification_ptr: () => m.las_classification_ptr(),
+          las_classification_len: () => m.las_classification_len(),
+        };
+        handleLas = createLasWorkerHandler(
+          lasModule,
+          (out, transfer) => {
+            if (transfer) self.postMessage(out, transfer);
+            else self.postMessage(out);
+          },
+        );
         self.postMessage({ type: "ready" });
         break;
       }

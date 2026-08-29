@@ -3,7 +3,7 @@ ward: 26
 revision: null
 name: "LiDAR Production Path"
 epic: "point-cloud-pivot"
-status: "red"
+status: "gold"
 dependencies: [16, 17, 21, 22, 23, 25]
 priority: "high"
 layer: "typescript"
@@ -133,3 +133,41 @@ Drop-tekst og titel afspejler LiDAR-stien; `.las`/`.laz`/`.ply` accepteres.
 
 ## Verification
 `npx vitest run` grøn (inkl. alle tidligere wards), `npx tsc --noEmit` uden nye fejl, og V1-V4 kørt i browser af et menneske.
+
+## Gold Result (2026-08-29)
+
+Alle 10 tests grønne. Fuld suite: **215 TypeScript** (1 skipped) + **46 Rust**. `las-smoke.ts`/`las-smoke.html` er ikke rørt — Must-NOT overholdt.
+
+### Implementeret
+
+| Fil | Ændring |
+|-----|---------|
+| `src/worker/las-worker-handler.ts` (ny) | Modtagersiden af Ward 21's protokol som ren funktion |
+| `src/worker/wasm-worker.ts` | `las-*`-beskeder routes til handleren; eksplicit FFI-adapter |
+| `src/errors/memory-pressure.ts` | `SceneFormat`-parameter + LAZ-residens; splat-default uændret |
+| `src/app/scene-format.ts` (ny) | Magic-byte-detektion |
+| `src/app/scene-loader.ts` (ny) | `File.stream()` → `ChunkSink`, aldrig en samlet buffer |
+| `src/app/render-mode.ts` (ny) | `DEFAULT_RENDER_MODE = "points"` |
+| `src/render/normalize.ts` (ny) | UTM → render-rum i f64 før f32 |
+| `src/camera/math.ts` | `multiplyMatrices` |
+| `src/webgpu/colored-point-pipeline.ts` | `viewProj: "constant" \| "uniform"` |
+| `src/app/main.ts` | Omskrevet til LiDAR-appen |
+| `index.html` | Titel + drop-tekst |
+
+### Beslutninger truffet under implementeringen
+
+**Én chunk, to modtagere.** `loadSceneFile`'s `ChunkSink` gav en pænere løsning end spec'ens "Worker læser tilbage fra OPFS": hver chunk skrives til OPFS *og* sendes til workeren i samme gennemløb. Filen gennemløbes én gang, kun én chunk er resident, og OPFS-kopien ligger klar til senere genindlæsning uden nyt drop. Ward 2's `writeFileToOpfs` bruges derfor ikke — den tager en hel `File` og slicer selv, hvilket ville betyde et ekstra gennemløb.
+
+**Point-input tælles ikke med i memory-estimatet.** For splats indgår input-filen (236 B/element), fordi PLY-stien holder den. Point-stien streamer, så der er aldrig en resident kopi — kun SoA'en (19 B) plus dens GPU-kopi, og for LAZ de komprimerede bytes decoderen holder (konservativt 20 % af 36 B/punkt). Uden den skelnen ville 20M punkter lande på 2,2 GB og blive afvist af 2 GB-tærsklen; nu lander de på 1,1 GB.
+
+**`viewProj` blev en variant, ikke en ændring.** At gøre matricen til en uniform ville have tvunget `las-smoke.ts` til at ændre bind group — mod ward'ets egen Must-NOT. I stedet vælger `compileColoredPointPipeline` mellem en indbagt konstant (default, uændret layout) og binding 8. Kun `main.ts` beder om uniform-varianten.
+
+### Fundet undervejs
+
+Placeholderen i shader-strengen var først skrevet som `${VIEW_PROJ_DECL}` inde i et template literal — altså en ægte JS-interpolation, der fik hele modulet til at fejle ved import. Vitest kørte på cache og rapporterede grønt; `npx vitest run --no-cache` afslørede det. Testene siger nu 19 hvor de før sagde 12 for de samme to wards.
+
+`npx tsc --noEmit` afslørede også at Ward 25 aldrig deklarerede `las_compressed` på `WasmModule` — rettet i Ward 23's commit. Værd at bemærke: test-suiten kunne ikke fange nogen af delene.
+
+### Visual Verification — mangler menneske
+
+V1-V4 kræver GPU og rigtige filer. Bemærk at V3 (zoom) nu *kan* verificeres: `main.ts` bruger et ægte perspektiv-kamera, så `clip_w` varierer med dybden og Ward 23's point-size-formel har effekt — modsat smoke-siden.
