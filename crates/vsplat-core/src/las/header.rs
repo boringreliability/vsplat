@@ -15,8 +15,14 @@ pub enum LasError {
     /// Header bytes truncated
     BufferTooSmall,
     /// File is LAZ-compressed (high bit of point_data_format is set).
-    /// Ward 21 leverer kun ukomprimeret LAS; LAZ-decode er Ward 25's område.
+    /// Returneret af `parse_las_header`, som bevidst afviser komprimeret input.
+    /// Ward 25's `parse_las_header_allow_compressed` accepterer det i stedet.
     LazCompressed,
+    /// LAZ-fil uden "laszip encoded" VLR (record_id 22204) — vi kan ikke vide
+    /// hvordan punkterne er kodet, så vi gætter ikke.
+    MissingLazVlr,
+    /// LAZ-dekomprimering fejlede, med decoderens egen diagnostik.
+    LazDecode(String),
     /// Some other corruption with diagnostic
     Corrupt(String),
 }
@@ -24,6 +30,10 @@ pub enum LasError {
 /// Parsed LAS Public Header Block — only the fields Ward 21 consumes.
 #[derive(Debug, Clone)]
 pub struct LasHeader {
+    /// True hvis filen er LAZ-komprimeret (high bit på point_data_format).
+    /// `point_data_format` er da maskeret rent, så resten af pipelinen ser
+    /// det underliggende PDRF-nummer.
+    pub compressed: bool,
     pub version_major: u8,
     pub version_minor: u8,
     pub header_size: u16,
@@ -63,7 +73,23 @@ fn read_f64(bytes: &[u8], offset: usize) -> f64 {
 }
 
 /// Parse a LAS Public Header Block from raw bytes.
+///
+/// Afviser LAZ-komprimeret input med [`LasError::LazCompressed`] — Ward 21's
+/// kontrakt, bevaret uændret. Brug [`parse_las_header_allow_compressed`] når
+/// du har en decoder klar.
 pub fn parse_las_header(bytes: &[u8]) -> Result<LasHeader, LasError> {
+    parse_inner(bytes, false)
+}
+
+/// Som [`parse_las_header`], men accepterer LAZ-komprimerede filer.
+///
+/// Sætter `compressed = true` og maskerer compression-bittene af
+/// `point_data_format`, så kaldere ser det underliggende PDRF-nummer.
+pub fn parse_las_header_allow_compressed(bytes: &[u8]) -> Result<LasHeader, LasError> {
+    parse_inner(bytes, true)
+}
+
+fn parse_inner(bytes: &[u8], allow_compressed: bool) -> Result<LasHeader, LasError> {
     if bytes.len() < MIN_HEADER_SIZE {
         return Err(LasError::BufferTooSmall);
     }
@@ -84,10 +110,17 @@ pub fn parse_las_header(bytes: &[u8]) -> Result<LasHeader, LasError> {
     let point_data_format_raw = bytes[104];
     // High bit (0x80) signals LAZ compression — afvis eksplicit i stedet for at
     // silently strippe og parse komprimerede bytes som rå koordinater.
-    if point_data_format_raw & 0x80 != 0 {
+    let compressed = point_data_format_raw & 0x80 != 0;
+    if compressed && !allow_compressed {
         return Err(LasError::LazCompressed);
     }
-    let point_data_format = point_data_format_raw;
+    // Kun komprimerede filer får format-ID'et maskeret. Ukomprimeret input
+    // rapporteres råt, så et ugyldigt format som 99 fejler med sit eget tal.
+    let point_data_format = if compressed {
+        point_data_format_raw & 0x3F
+    } else {
+        point_data_format_raw
+    };
     if !matches!(point_data_format, 0 | 1 | 2 | 3 | 6 | 7) {
         return Err(LasError::UnsupportedFormat(point_data_format));
     }
@@ -109,6 +142,7 @@ pub fn parse_las_header(bytes: &[u8]) -> Result<LasHeader, LasError> {
     };
 
     Ok(LasHeader {
+        compressed,
         version_major,
         version_minor,
         header_size,

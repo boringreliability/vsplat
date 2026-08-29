@@ -3,7 +3,7 @@ ward: 25
 revision: null
 name: "LAZ Decompression"
 epic: "point-cloud-pivot"
-status: "red"
+status: "gold"
 dependencies: [21]
 priority: "medium"
 layer: "rust"
@@ -138,3 +138,54 @@ pub fn parse_las_header_allow_compressed(bytes: &[u8]) -> Result<LasHeader, LasE
 1. **Strategi-prioritet:** Skal vi tage `laz-rs` selv hvis det er 50% langsommere end manuel port? Mit forslag: ja — vedligehold kommer først, perf andet.
 2. **Streaming vs. full-decode:** Skal LAZ-decoder streame chunks ligesom Ward 21's parser, eller dekomprimere fuldt før parse-stage? Streaming er mere komplekst men matcher Ward 16's I/O-model.
 3. **LAZ 1.4-specifik chunk-format:** LAZ-spec'en blev udvidet i v1.4 med variable chunks. Skal vi støtte begge formats fra start eller kun det mest udbredte v1.0?
+
+## Gold Result (2026-08-29)
+
+Alle 6 tests grønne. Fuld suite: **46 Rust** (41 baseline + T1-T5) og **202 TypeScript** — inklusive Ward 018's `wasm-pack`-test, som nu kan køre fordi toolchainen er installeret. Ingen regressioner.
+
+### Implementeret
+
+| Fil | Ændring |
+|-----|---------|
+| `src/las/laz.rs` (ny) | `Decompressor` trait, `LazDecoder`, `find_laz_vlr`, `LAZ_BACKEND` |
+| `src/las/header.rs` | `parse_las_header_allow_compressed`, `LasHeader.compressed`, `LasError::{MissingLazVlr, LazDecode}` |
+| `src/las/stream_parser.rs` | `ParseState::BufferingLaz` + `parse_chunk_laz` — samme `emit_point` som ukomprimeret input |
+| `src/ffi.rs` | `las_compressed()` |
+| `src/worker/las-bridge.ts` | `LasLoadResult.compressed` |
+| `src/app/las-smoke.ts`, `las-smoke.html` | LAZ-afvisningen fra Ward 21 fjernet; HUD viser LAS/LAZ |
+| `Cargo.toml` | `laz = { version = "0.13", default-features = false }` |
+
+`parse_las_header` og `LasError::LazCompressed` er uændrede — Ward 21's kontrakt er intakt, verificeret af T1 og af Ward 21's egen `t1d`.
+
+### Målinger
+
+**Wasm-størrelse** (`wasm-pack build --target web`, release):
+
+| | Rå | Gzip |
+|---|---|---|
+| Før Ward 25 | 73 KB | 31 KB |
+| Med LAZ | 277 KB | 75 KB |
+
+LAZ-decoderen koster altså **+204 KB rå / +44 KB gzip**.
+
+**Decode + parse, 5M punkter** (native release, syntetisk luftbåren scan, sorterede flyvelinjer):
+
+| Input | Størrelse | Tid | Rate |
+|-------|-----------|-----|------|
+| LAS (ukomprimeret) | 170 MB | 193 ms | 25,9 Mpts/s |
+| LAZ | 34,6 MB | 2 709 ms | 1,8 Mpts/s |
+
+Med tilfældige koordinater (worst case for LAZ' prædiktive kodning) blev det 4 029 ms / 98 MB.
+
+**To ting QA1 bør notere:**
+
+1. **Spec'ens "~2x langsommere end LAS" holder ikke** — vi måler **14x**. Årsagen er ikke at laz-rs er langsom, men at Ward 21's parser er ekstremt let (ren SoA-udtrækning ved 26 Mpts/s), så decoderen dominerer totalt. Det absolutte tal lander stadig under spec'ens V2-budget på ~3s for 5M — men kun lige, og **native**. Wasm er typisk 1,2-2x langsommere, så V2 i browseren er ikke afgjort af mine målinger.
+2. **Mulig optimering, bevidst ikke taget:** `laz-rs` kan dekomprimere selektivt (`DecompressionSelection`) og springe felter over vi alligevel smider væk — først og fremmest GPS-tid, som er 8 bytes per punkt i PDRF 1/3. Det ville bryde T2's byte-identiske sammenligning og kontrakten om at levere rå LAS-records, så det hører til en separat beslutning.
+
+### Kendt begrænsning
+
+`LazDecoder::is_ready()` afgør at filen er hel ved at prøve at læse chunk-tabellen, som ligger sidst i filen. Filer hvor skriveren ikke har registreret chunk-table-offsettet (feltet står som 0 eller -1) kan derfor begynde at dekomprimere for tidligt og fejle med `LazDecode` i stedet for at vente på flere bytes. LASzip, PDAL og laspy skriver alle offsettet, så det rammer ikke normale filer — men en `las_finish()`-signal fra bridgen ville lukke hullet helt.
+
+### Visual Verification — mangler menneske
+
+V1 (drop en ægte USGS/Open Topography LAZ i `las-smoke.html`) og V2 (5M-punkt LAZ i browseren under ~3s) kræver GPU og rigtige filer, som containeren ikke har. Smoke-siden accepterer nu `.laz` og viser formatet i HUD'en, så begge kan køres direkte.

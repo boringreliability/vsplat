@@ -136,6 +136,8 @@ interface ParsedLas {
   rgb: Uint8Array;
   classification: Uint8Array;
   parseMs: number;
+  /** True hvis filen var LAZ-komprimeret (dekomprimeret i Rust, Ward 25). */
+  compressed: boolean;
 }
 
 async function parseLas(data: ArrayBuffer): Promise<ParsedLas> {
@@ -160,7 +162,10 @@ async function parseLas(data: ArrayBuffer): Promise<ParsedLas> {
   const rgb = new Uint8Array(new Uint8Array(mem, mod.las_rgb_ptr(), mod.las_rgb_len()));
   const classification = new Uint8Array(new Uint8Array(mem, mod.las_classification_ptr(), mod.las_classification_len()));
 
-  return { pointCount: mod.las_point_count(), positions, intensity, rgb, classification, parseMs };
+  return {
+    pointCount: mod.las_point_count(), positions, intensity, rgb, classification, parseMs,
+    compressed: mod.las_compressed(),
+  };
 }
 
 function normalizePositions(positions: Float32Array): Float32Array {
@@ -509,18 +514,11 @@ async function main(): Promise<void> {
         showError(`Filen starter ikke med "LASF" magic — fik "${got}". Er det en gyldig LAS-fil?`);
         return;
       }
-      if (data.byteLength > 104) {
-        const pdrf = new Uint8Array(data, 104, 1)[0]!;
-        if (pdrf & 0x80) {
-          showError(
-            `Dette er en LAZ-komprimeret fil (PDRF 0x${pdrf.toString(16)}). ` +
-            `Ward 21 leverer kun ukomprimeret LAS — LAZ er Ward 25's område.`,
-          );
-          return;
-        }
-      }
       const r = await parseLas(data);
-      pointCountEl.textContent = r.pointCount.toLocaleString("da-DK");
+      // Ward 25: LAZ dekomprimeres i Rust, så komprimeret input kræver
+      // ingen særbehandling her — vi viser det blot i HUD'en.
+      const label = r.compressed ? "LAZ" : "LAS";
+      pointCountEl.textContent = `${r.pointCount.toLocaleString("da-DK")} (${label})`;
       parseTimeEl.textContent = `${r.parseMs.toFixed(0)}ms (${(r.pointCount / r.parseMs).toFixed(0)} points/ms)`;
       await uploadScene(r);
     } catch (err) {
@@ -607,7 +605,7 @@ async function main(): Promise<void> {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  console.log("[las-smoke] Ward 21+22 ready — drop .las or click generate");
+  console.log("[las-smoke] Ward 21+22+25 ready — drop .las or .laz, or click generate");
 }
 
 main().catch(err => showError(err instanceof Error ? err.message : String(err)));

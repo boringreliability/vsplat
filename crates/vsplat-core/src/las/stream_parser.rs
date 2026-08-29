@@ -4,7 +4,8 @@
 /// ved at konsumere chunks af LAS-bytes. Holder en intern partial-buffer for at
 /// håndtere chunk-grænser midt i en point record.
 
-use crate::las::header::{parse_las_header, LasError, LasHeader};
+use crate::las::header::{parse_las_header_allow_compressed, LasError, LasHeader};
+use crate::las::laz::{decode_batch, find_laz_vlr, Decompressor, LazDecoder};
 
 /// Point Data Record Format — Ward 21 supporterer 0, 1, 2, 3, 6, 7
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,6 +81,9 @@ enum ParseState {
     NeedsHeader,
     SkippingToPointData,
     ReadingPoints,
+    /// LAZ: samler komprimerede bytes indtil decoderen kan køre.
+    /// Se `las::laz` for hvorfor hele filen skal være modtaget først.
+    BufferingLaz,
     Done,
 }
 
@@ -97,6 +101,11 @@ pub struct LasParser {
     cursor: u64,
     /// Point records emitted so far
     points_emitted: u64,
+    /// LAZ: bytes fra filens offset 0 indtil laszip-VLR'en er lokaliseret.
+    /// LAZ' chunk-table-offset er absolut, så decoderen skal se filen fra
+    /// byte 0 — derfor beholder vi header + VLR-blok her.
+    laz_prefix: Vec<u8>,
+    laz_decoder: Option<LazDecoder>,
 }
 
 impl LasParser {
@@ -112,10 +121,14 @@ impl LasParser {
             pending: Vec::new(),
             cursor: 0,
             points_emitted: 0,
+            laz_prefix: Vec::new(),
+            laz_decoder: None,
         }
     }
 
     pub fn header(&self) -> Option<&LasHeader> { self.header.as_ref() }
+    /// True hvis den indlæste fil var LAZ-komprimeret.
+    pub fn is_compressed(&self) -> bool { self.header.as_ref().is_some_and(|h| h.compressed) }
     pub fn pdrf(&self) -> Option<PdrfFormat> { self.pdrf }
     pub fn positions(&self) -> &[f32] { &self.positions }
     pub fn intensity(&self) -> &[u16] { &self.intensity }
@@ -123,7 +136,14 @@ impl LasParser {
     pub fn classification(&self) -> &[u8] { &self.classification }
 
     /// Feed a chunk of bytes. First call must include the header at offset 0.
+    ///
+    /// LAS og LAZ deler denne indgang: er filen komprimeret, sendes bytes
+    /// videre til `LazDecoder`, og de dekomprimerede records løber gennem
+    /// præcis samme `emit_point` som ukomprimeret input.
     pub fn parse_chunk(&mut self, chunk: &[u8]) -> Result<ParseResult, LasError> {
+        if self.state == ParseState::BufferingLaz {
+            return self.parse_chunk_laz(chunk);
+        }
         // Concat with pending — common branch for partial records / partial header.
         // Allocation cost is one Vec move per chunk; the pending buffer stays small.
         let mut buf = std::mem::take(&mut self.pending);
@@ -139,16 +159,25 @@ impl LasParser {
                         self.pending = buf.split_off(cursor);
                         return Ok(ParseResult { points_added, done: false });
                     }
-                    let header = parse_las_header(&buf[cursor..])?;
+                    let header = parse_las_header_allow_compressed(&buf[cursor..])?;
                     let header_size = header.header_size as usize;
                     if buf.len() - cursor < header_size {
                         self.pending = buf.split_off(cursor);
                         return Ok(ParseResult { points_added, done: false });
                     }
                     self.pdrf = Some(PdrfFormat::from_u8(header.point_data_format)?);
+                    let compressed = header.compressed;
+                    self.header = Some(header);
+                    if compressed {
+                        // LAZ: intet konsumeres her — decoderen skal se filen
+                        // fra byte 0, fordi chunk-table-offsettet er absolut.
+                        self.state = ParseState::BufferingLaz;
+                        let rest = buf.split_off(cursor);
+                        self.pending.clear();
+                        return self.parse_chunk_laz(&rest);
+                    }
                     self.cursor = header_size as u64;
                     cursor += header_size;
-                    self.header = Some(header);
                     self.state = ParseState::SkippingToPointData;
                 }
 
@@ -209,11 +238,79 @@ impl LasParser {
                     return Ok(ParseResult { points_added, done: false });
                 }
 
+                ParseState::BufferingLaz => {
+                    // Uopnåelig: `parse_chunk` router LAZ-input til
+                    // `parse_chunk_laz` før løkken, og NeedsHeader-grenen
+                    // returnerer direkte når headeren viser compression.
+                    unreachable!("LAZ-state drives af parse_chunk_laz")
+                }
+
                 ParseState::Done => {
                     return Ok(ParseResult { points_added, done: true });
                 }
             }
         }
+    }
+}
+
+impl LasParser {
+    /// Driver LAZ-stien: buffer → decoder → batch-vis decode → `emit_point`.
+    fn parse_chunk_laz(&mut self, chunk: &[u8]) -> Result<ParseResult, LasError> {
+        // Bytes går enten i prefix-bufferen (indtil VLR'en er fundet) eller
+        // direkte i decoderen. Ingen af delene kopierer filen to gange.
+        match self.laz_decoder.as_mut() {
+            Some(decoder) => decoder.push_compressed(chunk),
+            None => self.laz_prefix.extend_from_slice(chunk),
+        }
+
+        let header = self.header.as_ref().expect("header parsed");
+
+        if self.laz_decoder.is_none() {
+            match find_laz_vlr(&self.laz_prefix, header) {
+                Ok(vlr) => {
+                    let mut decoder = LazDecoder::new(header, &vlr)?;
+                    // Hand prefixet videre og slip det: fra nu af ejer
+                    // decoderen de komprimerede bytes.
+                    decoder.push_compressed(&self.laz_prefix);
+                    self.laz_prefix = Vec::new();
+                    self.laz_decoder = Some(decoder);
+                }
+                // VLR-blokken er ikke modtaget endnu — vent på flere bytes.
+                Err(LasError::BufferTooSmall) => {
+                    return Ok(ParseResult { points_added: 0, done: false });
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        let decoder = self.laz_decoder.as_mut().expect("decoder sat ovenfor");
+        if !decoder.is_ready() {
+            return Ok(ParseResult { points_added: 0, done: false });
+        }
+
+        // Filen er hel: dekomprimér i batches så en caller kan rapportere
+        // progress i stedet for at blokere på hele filen ad gangen.
+        let pdrf = self.pdrf.expect("pdrf set");
+        let record_len = header.point_data_record_length as usize;
+        let mut points_added = 0u32;
+
+        while !decoder.is_done() {
+            let batch = decoder.decompress_chunk(decode_batch())?;
+            for rec in batch.chunks_exact(record_len) {
+                emit_point(
+                    rec, pdrf, header,
+                    &mut self.positions,
+                    &mut self.intensity,
+                    &mut self.rgb,
+                    &mut self.classification,
+                );
+                self.points_emitted += 1;
+                points_added += 1;
+            }
+        }
+
+        self.state = ParseState::Done;
+        Ok(ParseResult { points_added, done: true })
     }
 }
 

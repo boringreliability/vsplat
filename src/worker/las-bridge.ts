@@ -1,8 +1,10 @@
 /**
  * Ward 021: LAS Worker Bridge.
  *
- * Streamer en LAS-fil til Wasm-parseren chunk-for-chunk og rapporterer progress
- * tilbage til main thread. Eksponerer SoA-buffers (positions, intensity, rgb,
+ * Streamer en LAS- eller LAZ-fil til Wasm-parseren chunk-for-chunk og
+ * rapporterer progress tilbage til main thread. Komprimeret input får ingen
+ * særbehandling her: bytes sendes uændret videre, og Rust-parseren wrapper
+ * dem selv i LAZ-decoderen (Ward 25). Eksponerer SoA-buffers (positions, intensity, rgb,
  * classification) som zero-copy views over Wasm-memory efter load er complete.
  */
 
@@ -16,6 +18,9 @@ export interface LasLoadResult {
   pointCount: number;
   hasRgb: boolean;
   hasClassification: boolean;
+  /** True hvis filen var LAZ-komprimeret. Decoding sker i Rust (Ward 25) —
+   *  bridgen er ren transport og videresender bytes uændret. */
+  compressed: boolean;
 }
 
 export interface LasBuffers {
@@ -42,7 +47,7 @@ export interface LasBridgeOptions {
 const DEFAULT_CHUNK_SIZE = 64 * 1024;
 
 interface ProgressMsg { type: "las-progress"; bytesProcessed: number; totalBytes: number; pointsAdded: number; }
-interface LoadedMsg { type: "las-loaded"; pointCount: number; hasRgb: boolean; hasClassification: boolean; }
+interface LoadedMsg { type: "las-loaded"; pointCount: number; hasRgb: boolean; hasClassification: boolean; compressed?: boolean; }
 interface BuffersMsg {
   type: "las-buffers";
   positions: Float32Array;
@@ -84,6 +89,7 @@ export async function createLasBridge(
           pointCount: msg.pointCount,
           hasRgb: msg.hasRgb,
           hasClassification: msg.hasClassification,
+          compressed: msg.compressed ?? false,
         });
         resolveLoad = null;
         rejectLoad = null;
