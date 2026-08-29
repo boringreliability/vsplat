@@ -3,7 +3,7 @@ ward: 25
 revision: null
 name: "LAZ Decompression"
 epic: "point-cloud-pivot"
-status: "planned"
+status: "red"
 dependencies: [21]
 priority: "medium"
 layer: "rust"
@@ -43,6 +43,55 @@ LAZ-decode kræver en arithmetic coder + LAS-specifikt kontekst-model. Tre reali
    - Mister single-source-of-truth (decoder lever udenfor vores crate), men virker garanteret.
 
 Red-fasen starter med at evaluere strategi #1.
+
+## Spike Result (Red-fase, 2026-08-29)
+
+**Strategi #1 valgt: `laz` (laz-rs) v0.13.0 på `wasm32-unknown-unknown`.**
+
+| Kriterium | Resultat |
+|-----------|----------|
+| Bygger til `wasm32-unknown-unknown` | ✅ `default-features = false` |
+| Transitive deps | `byteorder` + `num-traits` (+ `autocfg` som build-dep) — **ingen WASI, ingen rayon** |
+| Dekomprimerer LASzip-C++-output | ✅ byte-identisk med ukomprimeret reference |
+| LAS 1.2 / PDRF 3 (PointWiseChunked) | ✅ 1 000 points |
+| LAS 1.4 / PDRF 6 (LayeredChunked) | ✅ 1 000 points |
+| Multi-chunk (120 000 pts / 3 chunks) | ✅ korrekt hen over alle chunk-grænser |
+
+Strategi #2 (manuel port) og #3 (`laz-perf` i JS) er dermed ikke i brug.
+
+### Svar på spec'ens åbne spørgsmål (til QA1's godkendelse)
+
+1. **Strategi-prioritet:** Ikke relevant — `laz-rs` er både lavrisiko og hurtig nok; ingen perf-afvejning at tage stilling til.
+2. **Streaming vs. full-decode:** **Full-buffer af komprimerede bytes, batch-vis decode.** Spike'en viste hvorfor: LAZ' chunk-table-offset er en *absolut* filoffset, og `LasZipDecompressor` seeker til den ved konstruktion. Decoderen kan derfor ikke fodres med et vindue af filen. Dertil har laz-rs ingen rollback hvis en decode rammer EOF midt i et punkt, så ægte byte-granulær streaming ville kræve enten chunk-checkpoints (ikke muligt med laz-rs' opake state) eller gen-decode fra filstart (O(n²)). Vi buffrer i stedet de komprimerede bytes (LAZ er 10–20 % af LAS-størrelsen) og dekomprimerer i batches, så progress kan rapporteres uden at blokere workeren. T4 låser den kontrakt.
+3. **LAZ 1.4 chunk-format:** Begge understøttes fra start — det koster os intet, da `laz-rs` håndterer både fixed-size og variable-size chunks. `pdrf6_v14`-fixturen dækker LAS 1.4-stien.
+
+### Test-fixtures
+
+`crates/vsplat-core/tests/fixtures/` (97 KB i alt) er genereret med `generate_fixtures.py` via **laspy + LASzip C++-backend** — altså referenceimplementationen, ikke laz-rs. Komprimering med den ene og dekomprimering med den anden gør T2 til en ægte kryds-implementeringstest frem for en round-trip gennem ét bibliotek. `lazrs`-backenden er bevidst ikke installeret; generatoren asserter det.
+
+### API-kontrakt låst af Red-testene
+
+```rust
+// crates/vsplat-core/src/las/laz.rs (ny)
+pub const LAZ_BACKEND: &str = "laz-rs";
+pub struct LazVlrInfo { chunk_size: u32, items_size: u64, variable_size_chunks: bool, point_data_offset: usize }
+pub fn find_laz_vlr(file: &[u8], header: &LasHeader) -> Result<LazVlrInfo, LasError>;
+pub trait Decompressor {
+    fn push_compressed(&mut self, bytes: &[u8]);
+    fn decompress_chunk(&mut self, max_points: usize) -> Result<Vec<u8>, LasError>;
+    fn points_remaining(&self) -> u64;
+    fn is_done(&self) -> bool;
+}
+pub struct LazDecoder; // impl Decompressor
+
+// header.rs — Ward 21's parse_las_header() og LasError::LazCompressed er UÆNDREDE
+pub fn parse_las_header_allow_compressed(bytes: &[u8]) -> Result<LasHeader, LasError>;
+// LasHeader får: pub compressed: bool   (point_data_format maskeres med 0x3F)
+// LasError får:  MissingLazVlr, LazDecode(String)
+
+// stream_parser.rs — LasParser::parse_chunk() håndterer LAZ transparent
+// las-bridge.ts — LasLoadResult/LoadedMsg får: compressed: boolean
+```
 
 ## Inputs
 - Ward 21: `LasParser`, `LasError::LazCompressed`, ASPRS LAS header-parser
