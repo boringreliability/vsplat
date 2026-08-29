@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-22 of 25 Wards complete · 205 estimated tests · 0 blocked
+23 of 25 Wards complete · 249 tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -28,9 +28,13 @@
 | 020 | The Point Cloud Shader & Pipeline Clean | 7 | ✅ Complete | 2026-05-27 |
 | 021 | LAS/LAZ Stream Ingestion | 9 | ✅ Complete | 2026-05-27 |
 | 022 | Intensity Color-Ramp Mapping | 7 | ✅ Complete | 2026-05-27 |
-| 023 | Hardware Z-Buffer Hardening (Massive Scale) | 8 | 📋 Planned | - |
+| 023 | Hardware Z-Buffer Hardening (Massive Scale) | 9 | 🔨 Gold (afventer QA1) | - |
 | 024 | WebGPU API Migration & Tech Debt | 10 | ✅ Complete | 2026-05-27 |
-| 025 | LAZ Decompression | 6 | 📋 Planned | - |
+| 025 | LAZ Decompression | 6 | ✅ Complete | 2026-08-29 |
 
 ## Test Summary
-- Estimated total: 205
+- Faktisk kørende: **249** — 46 Rust (`cargo test`) + 203 TypeScript (`vitest`, hvoraf 1 skipped i ward-007)
+- Ward 018's A1-test kræver `wasm-pack` på PATH; uden den fejler den med `ENOENT` (miljøkrav, ikke kodefejl)
+
+### Manuelle rettelser af denne fil
+`wdd complete` kender ikke `status: deferred` og regenererer Ward 019 som "Planned" — Ward 019's række er sat manuelt, ligesom Ward 023's `gold`-status. Bemærk også at rækkerne 0122/0132/0141/0152/0161/0172/0181 har forvanskede ward-numre fra en tidligere regenerering; de dækker Ward 12-18.

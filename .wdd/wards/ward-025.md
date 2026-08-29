@@ -3,13 +3,13 @@ ward: 25
 revision: null
 name: "LAZ Decompression"
 epic: "point-cloud-pivot"
-status: "gold"
+status: "complete"
 dependencies: [21]
 priority: "medium"
 layer: "rust"
 estimated_tests: 6
 created: "2026-05-27"
-completed: null
+completed: "2026-08-29"
 ---
 # Ward 025: LAZ Decompression
 

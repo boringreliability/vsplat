@@ -13,10 +13,11 @@ Transformere vsplat-motoren fra en beregningstung 3D Gaussian Splatting-viewer t
 ## Wards
 | Ward | Name | Status |
 |------|------|--------|
-| 20 | The Point Cloud Shader & Pipeline Clean | planned |
-| 21 | LAS/LAZ Stream Ingestion | planned |
-| 22 | Intensity Color-Ramp Mapping | planned |
-| 23 | Hardware Z-Buffer Hardening (Massive Scale) | planned |
+| 20 | The Point Cloud Shader & Pipeline Clean | complete |
+| 21 | LAS/LAZ Stream Ingestion | complete |
+| 22 | Intensity Color-Ramp Mapping | complete |
+| 23 | Hardware Z-Buffer Hardening (Massive Scale) | gold — afventer QA1 |
+| 25 | LAZ Decompression | complete |
 
 ## Integration Points
 - **Epic 01 (Native Web Foundation):** Genbruger den etablerede OPFS-pipeline, Wasm Worker bridge og zero-copy hukommelsesmodel.
