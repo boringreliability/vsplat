@@ -3,13 +3,13 @@ ward: 26
 revision: null
 name: "LiDAR Production Path"
 epic: "point-cloud-pivot"
-status: "gold"
+status: "complete"
 dependencies: [16, 17, 21, 22, 23, 25]
 priority: "high"
 layer: "typescript"
 estimated_tests: 10
 created: "2026-08-29"
-completed: null
+completed: "2026-09-04"
 ---
 # Ward 026: LiDAR Production Path
 

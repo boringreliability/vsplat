@@ -1,7 +1,7 @@
 # Progress — vsplat
 
 ## Summary
-24 of 25 Wards complete · 252 tests · 0 blocked
+25 of 26 Wards complete · 262 tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -31,9 +31,11 @@
 | 023 | Hardware Z-Buffer Hardening (Massive Scale) | 12 | ✅ Complete | 2026-08-29 |
 | 024 | WebGPU API Migration & Tech Debt | 10 | ✅ Complete | 2026-05-27 |
 | 025 | LAZ Decompression | 6 | ✅ Complete | 2026-08-29 |
+| 026 | LiDAR Production Path | 10 | ✅ Complete | 2026-09-04 |
 
 ## Test Summary
-- Faktisk kørende: **252** — 46 Rust (`cargo test`) + 206 TypeScript (`vitest`, hvoraf 1 skipped i ward-007)
+- Faktisk kørende: **262** — 46 Rust (`cargo test`) + 216 TypeScript (`vitest`, hvoraf 1 skipped i ward-007)
+- Kør TS-suiten med `--no-cache` før du stoler på en grøn kørsel: Ward 26 fandt et modul der fejlede ved import, mens vitest rapporterede grønt fra cache
 - Ward 018's A1-test kræver `wasm-pack` på PATH; uden den fejler den med `ENOENT` (miljøkrav, ikke kodefejl)
 
 ### Manuelle rettelser af denne fil
