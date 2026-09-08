@@ -11,8 +11,10 @@
 
 import { describe, it, expect } from "vitest";
 import { computePointSize } from "../../src/render/point-size.js";
+import { drawArgsFor, planBatchDraws } from "../../src/render/draw-plan.js";
+import { permuteAttribute } from "../../src/render/batch-manager.js";
 import { BatchManager, type BoundingBox } from "../../src/render/batch-manager.js";
-import { cullBatch } from "../../src/render/frustum-cull.js";
+import { cullBatch, flattenPlanes } from "../../src/render/frustum-cull.js";
 import { AdaptiveDensityThrottler } from "../../src/render/adaptive-density.js";
 import { extractFrustumPlanes } from "../../src/selection/frustum.js";
 
@@ -57,15 +59,16 @@ describe("Ward 023: Hardware Z-Buffer Hardening", () => {
     expect(result).toBe(1.0);
   });
 
-  it("T3b: Given: density_factor < 1.0 — When: computePointSize — Then: scales base proportionally", () => {
-    // baseSizePx=4, clipW=2, density=0.5 → 4 / 2 * 0.5 = 1.0 (inside clamp range)
-    const result = computePointSize(2.0, {
-      baseSizePx: 4.0,
-      maxSizePx: 16.0,
-      densityFactor: 0.5,
-      viewportPx: 1000,
-    });
-    expect(result).toBeCloseTo(1.0, 5);
+  it("T3b: Given: density_factor < 1.0 — When: computePointSize — Then: størrelsen er upåvirket (density dropper punkter, den skrumper dem ikke)", () => {
+    // Shaderen bruger density_factor til at droppe punkter (hash > factor),
+    // ikke til at skalere størrelsen. Ville den også skrumpe de overlevende,
+    // åbnede throttling huller dobbelt så hurtigt. CPU-referencen skal spejle
+    // shaderen præcist — den er referencen, ikke en anden mening.
+    const params = { baseSizePx: 4.0, maxSizePx: 16.0, viewportPx: 1000 };
+    const throttled = computePointSize(2.0, { ...params, densityFactor: 0.5 });
+    const full = computePointSize(2.0, { ...params, densityFactor: 1.0 });
+    expect(throttled).toBeCloseTo(2.0, 5); // 4 / 2, ingen density-faktor
+    expect(throttled).toBe(full);
   });
 
   // ─── T4: aabb_outside_frustum_skipped_by_cull ─────────────────
@@ -180,5 +183,88 @@ describe("Ward 023: Hardware Z-Buffer Hardening", () => {
     // numerisk drift. Recovery rate er 1.05 per evaluering, så over 60 frames
     // bør vi se mindst én recovery-step.
     expect(recovered).toBeGreaterThan(throttled + 0.05);
+  });
+
+  // ─── T9: batch_draw_plan_matches_visible_batches ──────────────
+
+  it("T9: Given: batches hvor nogle er udenfor frustum — When: planBatchDraws — Then: kun synlige tegnes, og naboer slås sammen", () => {
+    // Identity view-proj → frustum er NDC-kuben [-1, 1]³
+    const identityVP = new Float32Array([
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1,
+    ]);
+    const planes = flattenPlanes(extractFrustumPlanes(identityVP));
+
+    // NB: WebGPU's near plane ligger ved z = 0 (dybde ∈ [0, 1]), så en AABB med
+    // negativ z ligger BAG kameraet og culles korrekt.
+    const box = (
+      min: [number, number, number], max: [number, number, number],
+    ): BoundingBox => ({ min, max });
+    const batches: Batch[] = [
+      { firstPoint: 0, pointCount: 100, aabb: box([-0.5, -0.5, 0.1], [-0.1, -0.1, 0.4]) },
+      { firstPoint: 100, pointCount: 200, aabb: box([0.1, 0.1, 0.1], [0.5, 0.5, 0.4]) },
+      { firstPoint: 300, pointCount: 400, aabb: box([50, 50, 50], [60, 60, 60]) },   // udenfor
+      { firstPoint: 700, pointCount: 50, aabb: box([-0.2, -0.2, 0.2], [0.2, 0.2, 0.6]) },
+    ];
+
+    const plan = planBatchDraws(batches, planes);
+
+    expect(plan.totalBatches).toBe(4);
+    expect(plan.visibleBatches).toBe(3);
+    expect(plan.totalPoints).toBe(750);
+    expect(plan.drawnPoints).toBe(350);
+    // Batch 0+1 er sammenhængende og slås sammen; batch 3 står alene
+    expect(plan.ranges).toEqual([
+      { firstPoint: 0, pointCount: 300 },
+      { firstPoint: 700, pointCount: 50 },
+    ]);
+    // 6 vertices per punkt i triangle-list-quad-pipelinen
+    expect(drawArgsFor(plan.ranges[0]!)).toEqual({ vertexCount: 1800, firstVertex: 0 });
+    expect(drawArgsFor(plan.ranges[1]!)).toEqual({ vertexCount: 300, firstVertex: 4200 });
+  });
+
+  it("T9b: Given: intet culles — When: planBatchDraws — Then: hele scenen dækkes af sammenhængende ranges", () => {
+    const identityVP = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+    const planes = flattenPlanes(extractFrustumPlanes(identityVP));
+    const batches: Batch[] = Array.from({ length: 8 }, (_, i) => ({
+      firstPoint: i * 1000,
+      pointCount: 1000,
+      aabb: { min: [-0.5, -0.5, 0.1], max: [0.5, 0.5, 0.9] },
+    }));
+
+    const plan = planBatchDraws(batches, planes);
+
+    expect(plan.visibleBatches).toBe(8);
+    expect(plan.drawnPoints).toBe(8000);
+    // Alle 8 er naboer → ét enkelt draw call, ikke otte
+    expect(plan.ranges).toEqual([{ firstPoint: 0, pointCount: 8000 }]);
+  });
+
+  // ─── T10: permutation_keeps_attributes_with_their_points ──────
+
+  it("T10: Given: subdivide ompakker positions — When: permuteAttribute — Then: hvert punkt beholder sin egen attribut", () => {
+    // 12 punkter langs X i omvendt rækkefølge, så subdivide GARANTERET ompakker.
+    const n = 12;
+    const positions = new Float32Array(n * 3);
+    const intensity = new Uint16Array(n);
+    for (let i = 0; i < n; i++) {
+      positions[i * 3] = n - i;      // x falder → k-d split sorterer om
+      positions[i * 3 + 1] = 0;
+      positions[i * 3 + 2] = 0;
+      intensity[i] = 1000 + i;       // unik markør per punkt
+    }
+
+    const result = BatchManager.subdivide(positions, 3);
+    const permuted = permuteAttribute(intensity, result.permutation, 1);
+
+    expect(result.positions).not.toEqual(positions); // sanity: der ER ompakket
+    for (let i = 0; i < n; i++) {
+      // Punktets x-koordinat identificerer det entydigt; dets intensity skal følge med
+      const x = result.positions[i * 3]!;
+      const originalIndex = n - x;
+      expect(permuted[i]).toBe(1000 + originalIndex);
+    }
   });
 });

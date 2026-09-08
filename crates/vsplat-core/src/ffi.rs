@@ -219,6 +219,13 @@ pub fn las_classification_len() -> usize {
     LAS_PARSER.with(|c| c.borrow().as_ref().map_or(0, |p| p.classification().len()))
 }
 
+/// True hvis den indlæste fil var LAZ-komprimeret. Workeren sender flaget
+/// videre i `las-loaded`, så UI kan vise at filen blev dekomprimeret.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub fn las_compressed() -> bool {
+    LAS_PARSER.with(|c| c.borrow().as_ref().is_some_and(|p| p.is_compressed()))
+}
+
 /// Number of points parsed so far (positions.len() / 3)
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn las_point_count() -> usize {

@@ -31,6 +31,11 @@ import {
   uploadColorRamp,
 } from "../webgpu/color-ramps.js";
 import { AdaptiveDensityThrottler } from "../render/adaptive-density.js";
+import { BatchManager, permuteAttribute, type Batch } from "../render/batch-manager.js";
+import { flattenPlanes } from "../render/frustum-cull.js";
+import { drawArgsFor, planBatchDraws } from "../render/draw-plan.js";
+import { extractFrustumPlanes } from "../selection/frustum.js";
+import { VIEW_PROJ_MATRIX } from "../webgpu/colored-point-pipeline.js";
 
 const POINT_COUNT_SYNTH = 50_000;
 
@@ -47,6 +52,7 @@ interface WasmModule {
   las_classification_ptr(): number;
   las_classification_len(): number;
   las_point_count(): number;
+  las_compressed(): boolean;
 }
 
 function showError(msg: string): void {
@@ -136,6 +142,8 @@ interface ParsedLas {
   rgb: Uint8Array;
   classification: Uint8Array;
   parseMs: number;
+  /** True hvis filen var LAZ-komprimeret (dekomprimeret i Rust, Ward 25). */
+  compressed: boolean;
 }
 
 async function parseLas(data: ArrayBuffer): Promise<ParsedLas> {
@@ -160,7 +168,10 @@ async function parseLas(data: ArrayBuffer): Promise<ParsedLas> {
   const rgb = new Uint8Array(new Uint8Array(mem, mod.las_rgb_ptr(), mod.las_rgb_len()));
   const classification = new Uint8Array(new Uint8Array(mem, mod.las_classification_ptr(), mod.las_classification_len()));
 
-  return { pointCount: mod.las_point_count(), positions, intensity, rgb, classification, parseMs };
+  return {
+    pointCount: mod.las_point_count(), positions, intensity, rgb, classification, parseMs,
+    compressed: mod.las_compressed(),
+  };
 }
 
 function normalizePositions(positions: Float32Array): Float32Array {
@@ -247,6 +258,8 @@ let sizeUniformBuffer: GPUBuffer | null = null;  // Ward 23
 let baseSizePx = 2.0;
 let viewportPx = 1000;
 const throttler = new AdaptiveDensityThrottler();
+/** Ward 23: k-d batches over de ompakkede positions. Tom = ingen scene endnu. */
+let sceneBatches: Batch[] = [];
 
 // Textures + sampler (created once, ramp swapped on mode change)
 let rampTexture: GPUTexture | null = null;
@@ -266,6 +279,31 @@ type UiMode = "white" | "viridis" | "inferno" | "grayscale" | "elevation" | "cla
 let currentUiMode: UiMode = "viridis";
 let intensityRange: [number, number] = [0, 65535];
 let elevationRange: [number, number] = [-1, 1];
+
+/** Column-major rotation om Y — samme rotation som `rotateY` anvender på punkterne. */
+function rotationMatrixY(angle: number): Float32Array {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  // rotateY() beregner x' = c*x + s*z, z' = -s*x + c*z
+  return new Float32Array([
+    c, 0, -s, 0,
+    0, 1, 0, 0,
+    s, 0, c, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
+/** Column-major 4x4 multiplikation: returnerer a · b. */
+function multiplyMat4(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(16);
+  for (let col = 0; col < 4; col++) {
+    for (let row = 0; row < 4; row++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += a[k * 4 + row]! * b[col * 4 + k]!;
+      out[col * 4 + row] = sum;
+    }
+  }
+  return out;
+}
 
 function rotateY(out: Float32Array, src: Float32Array, angle: number): void {
   const c = Math.cos(angle), s = Math.sin(angle);
@@ -339,22 +377,33 @@ function writeSizeUniform(): void {
 async function uploadScene(parsed: ParsedLas): Promise<void> {
   if (!device || !pointPipeline || !coloredPipeline) throw new Error("device not ready");
 
-  // Normalize positions to clip space + scratch buffer for CPU rotation per frame
-  normalizedSource = normalizePositions(parsed.positions);
+  // Normalize positions to clip space, dernæst Ward 23's k-d subdivision.
+  // Rækkefølgen er vigtig: batchenes AABB'er skal ligge i samme rum som det
+  // shaderen læser, altså normaliseret og uroteret (rotationen håndteres som
+  // model-matrix i frustum-planerne, ikke ved at flytte AABB'erne).
+  const normalized = normalizePositions(parsed.positions);
+  const subdivision = BatchManager.subdivide(normalized);
+  sceneBatches = subdivision.batches;
+  normalizedSource = subdivision.positions;
   scratch = new Float32Array(normalizedSource.length);
   scratch.set(normalizedSource);
-  intensityRange = minMaxU16(parsed.intensity);
   elevationRange = minMaxY(normalizedSource);
 
+  // Attributterne SKAL følge permutationen — ellers får punkterne hinandens farver.
+  const perm = subdivision.permutation;
+  const intensity = permuteAttribute(parsed.intensity, perm, 1);
+  const classification = permuteAttribute(parsed.classification, perm, 1);
+  intensityRange = minMaxU16(intensity);
+
   // Pack u16 intensity → u32 storage
-  const intensityPacked = packU16ToU32(parsed.intensity);
+  const intensityPacked = packU16ToU32(intensity);
   // Pack u8 classification → u32 storage
-  const classPacked = packU8ToU32(parsed.classification);
+  const classPacked = packU8ToU32(classification);
   // Re-pack 3-byte rgb → 4-byte RGBA (only if buffer has data)
   const pointCount = parsed.pointCount;
   let rgbPacked: Uint8Array;
   if (parsed.rgb.length === pointCount * 3) {
-    rgbPacked = repackRgbToRgba(parsed.rgb);
+    rgbPacked = repackRgbToRgba(permuteAttribute(parsed.rgb, perm, 3));
   } else {
     // No RGB in this PDRF — fill with gray so shader still has valid buffer
     rgbPacked = new Uint8Array(pointCount * 4);
@@ -491,7 +540,7 @@ async function main(): Promise<void> {
     sizeValueEl.textContent = baseSizePx.toFixed(1);
     writeSizeUniform();
   });
-  batchCountEl.textContent = "n/a (batches CPU-tested, not smoke-integrated)";
+  batchCountEl.textContent = "—";
 
   canvas.addEventListener("dragover", e => e.preventDefault());
   canvas.addEventListener("drop", async e => {
@@ -509,18 +558,11 @@ async function main(): Promise<void> {
         showError(`Filen starter ikke med "LASF" magic — fik "${got}". Er det en gyldig LAS-fil?`);
         return;
       }
-      if (data.byteLength > 104) {
-        const pdrf = new Uint8Array(data, 104, 1)[0]!;
-        if (pdrf & 0x80) {
-          showError(
-            `Dette er en LAZ-komprimeret fil (PDRF 0x${pdrf.toString(16)}). ` +
-            `Ward 21 leverer kun ukomprimeret LAS — LAZ er Ward 25's område.`,
-          );
-          return;
-        }
-      }
       const r = await parseLas(data);
-      pointCountEl.textContent = r.pointCount.toLocaleString("da-DK");
+      // Ward 25: LAZ dekomprimeres i Rust, så komprimeret input kræver
+      // ingen særbehandling her — vi viser det blot i HUD'en.
+      const label = r.compressed ? "LAZ" : "LAS";
+      pointCountEl.textContent = `${r.pointCount.toLocaleString("da-DK")} (${label})`;
       parseTimeEl.textContent = `${r.parseMs.toFixed(0)}ms (${(r.pointCount / r.parseMs).toFixed(0)} points/ms)`;
       await uploadScene(r);
     } catch (err) {
@@ -598,16 +640,32 @@ async function main(): Promise<void> {
           },
         });
         pass.setPipeline(coloredPipeline!.pipeline);
+        // Én delt bind group for alle batches — kun draw-range varierer.
         pass.setBindGroup(0, coloredBindGroup!);
-        pass.draw(currentPointCount * 6);
+
+        // Rotationen ligger i positionerne (CPU-path), så AABB'erne ville være
+        // forældede efter første frame. I stedet foldes den ind i frustummet:
+        // planes udtrækkes fra VIEW_PROJ · rotY(angle), og batchene testes i
+        // deres egen uroterede model-space.
+        const vpModel = multiplyMat4(VIEW_PROJ_MATRIX, rotationMatrixY(rotationAngle));
+        const planes = flattenPlanes(extractFrustumPlanes(vpModel));
+        const plan = planBatchDraws(sceneBatches, planes);
+        for (const range of plan.ranges) {
+          const { vertexCount, firstVertex } = drawArgsFor(range);
+          pass.draw(vertexCount, 1, firstVertex, 0);
+        }
         pass.end();
+        batchCountEl.textContent =
+          `${plan.visibleBatches}/${plan.totalBatches} batches · ` +
+          `${plan.drawnPoints.toLocaleString("da-DK")}/${plan.totalPoints.toLocaleString("da-DK")} pts · ` +
+          `${plan.ranges.length} draws`;
       }
       device!.queue.submit([encoder.finish()]);
     }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  console.log("[las-smoke] Ward 21+22 ready — drop .las or click generate");
+  console.log("[las-smoke] Ward 21+22+25 ready — drop .las or .laz, or click generate");
 }
 
 main().catch(err => showError(err instanceof Error ? err.message : String(err)));

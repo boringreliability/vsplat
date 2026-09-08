@@ -10,6 +10,22 @@
  */
 
 import type { BoundingBox } from "./batch-manager.js";
+import type { FrustumPlanes } from "../selection/frustum.js";
+
+/**
+ * Ward 9's `extractFrustumPlanes` returnerer 6 tupler; `cullBatch` vil have dem
+ * fladt. Broen ligger her, så begge sider beholder deres naturlige form.
+ */
+export function flattenPlanes(planes: FrustumPlanes): Float32Array {
+  const out = new Float32Array(planes.length * 4);
+  for (let i = 0; i < planes.length; i++) {
+    out[i * 4 + 0] = planes[i]![0];
+    out[i * 4 + 1] = planes[i]![1];
+    out[i * 4 + 2] = planes[i]![2];
+    out[i * 4 + 3] = planes[i]![3];
+  }
+  return out;
+}
 
 /** Returns true if AABB is completely outside the frustum (skip draw). */
 export function cullBatch(aabb: BoundingBox, planes: Float32Array): boolean {

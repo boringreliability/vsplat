@@ -15,11 +15,34 @@ export interface ColoredPointPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
+/**
+ * View-projection som shaderen bruger — column-major, samme konvention som
+ * resten af projektet (`mat[col * 4 + row]`).
+ *
+ * Positionerne er allerede normaliseret til [-1, 1] på CPU-siden, så det her er
+ * reelt identitet med en z-remap til WebGPU's [0, 1] dybdeområde. Den er
+ * eksporteret fordi Ward 23's CPU-side frustum cull SKAL bruge præcis samme
+ * matrix som shaderen — to kopier ville drive fra hinanden.
+ */
+export const VIEW_PROJ_MATRIX = new Float32Array([
+  1.0, 0.0, 0.0, 0.0,
+  0.0, 1.0, 0.0, 0.0,
+  0.0, 0.0, 0.5, 0.0,
+  0.0, 0.0, 0.5, 1.0,
+]);
+
+/** Formatér en column-major mat4 som WGSL `mat4x4f`-kolonner. */
+function wgslMat4(m: Float32Array): string {
+  const col = (c: number) =>
+    `  vec4f(${[0, 1, 2, 3].map(r => m[c * 4 + r]!.toFixed(1)).join(", ")})`;
+  return [0, 1, 2, 3].map(col).join(",\n");
+}
+
 // Ward 23: triangle-list topology with 6-vertex quads per point.
 // WGSL no longer exposes @builtin(point_size), so variable point sizes require
 // quad-based billboards. Each point becomes a 2-triangle quad at clip-space center,
 // sized perspective-correct by `base_size_px / clip_w * density_factor`.
-const COLORED_POINT_SHADER_WGSL = /* wgsl */ `
+const COLORED_POINT_SHADER_BODY = /* wgsl */ `
 struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) intensity_norm: f32,
@@ -50,12 +73,7 @@ struct SizeUniform {
 @group(0) @binding(6) var<uniform> u: ColorUniform;
 @group(0) @binding(7) var<uniform> s: SizeUniform;
 
-const VIEW_PROJ = mat4x4f(
-  vec4f(1.0, 0.0, 0.0, 0.0),
-  vec4f(0.0, 1.0, 0.0, 0.0),
-  vec4f(0.0, 0.0, 0.5, 0.0),
-  vec4f(0.0, 0.0, 0.5, 1.0),
-);
+//__VIEW_PROJ_DECL__
 
 // Quad corner offsets for 2-triangle quad (6 vertices, triangle-list)
 // Order: tri1=(BL,BR,TL), tri2=(TL,BR,TR)
@@ -109,7 +127,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
     return out;
   }
 
-  let clip_center = VIEW_PROJ * vec4f(wx, wy, wz, 1.0);
+  let clip_center = view_proj() * vec4f(wx, wy, wz, 1.0);
 
   // Perspective-correct size in pixels, clamped [1.0, max_size_px]
   let size_px = clamp(s.base_size_px / max(clip_center.w, 1.0e-6),
@@ -154,12 +172,49 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 }
 `;
 
+export interface ColoredPointPipelineOptions {
+  /**
+   * Hvor view-projection kommer fra.
+   *
+   * `"constant"` (default) bager `VIEW_PROJ_MATRIX` ind i shaderen — det er
+   * hvad Ward 20-23 og `las-smoke.html` bruger, og bind group-layoutet er
+   * uændret 8 bindings.
+   *
+   * `"uniform"` tilføjer binding 8, så et rigtigt kamera kan skrive matricen
+   * per frame. Uden det er `clip_w` altid 1.0 og Ward 23's perspektiv-korrekte
+   * point size er en no-op (Ward 26).
+   */
+  viewProj?: "constant" | "uniform";
+}
+
+/** WGSL-deklarationen af VIEW_PROJ for den valgte kilde. */
+function viewProjDecl(source: "constant" | "uniform"): string {
+  if (source === "uniform") {
+    return [
+      "@group(0) @binding(8) var<uniform> view_proj_uniform: mat4x4f;",
+      "fn view_proj() -> mat4x4f { return view_proj_uniform; }",
+    ].join("\n");
+  }
+  return [
+    "const VIEW_PROJ_CONST = mat4x4f(",
+    wgslMat4(VIEW_PROJ_MATRIX),
+    ");",
+    "fn view_proj() -> mat4x4f { return VIEW_PROJ_CONST; }",
+  ].join("\n");
+}
+
 export async function compileColoredPointPipeline(
   device: GPUDevice,
   format: GPUTextureFormat,
+  options: ColoredPointPipelineOptions = {},
 ): Promise<ColoredPointPipeline> {
+  const viewProjSource = options.viewProj ?? "constant";
+  const code = COLORED_POINT_SHADER_BODY.replace(
+    "//__VIEW_PROJ_DECL__",
+    viewProjDecl(viewProjSource),
+  );
   const shaderModule = device.createShaderModule({
-    code: COLORED_POINT_SHADER_WGSL,
+    code,
     label: "colored-point-shader",
   });
 
@@ -192,6 +247,10 @@ export async function compileColoredPointPipeline(
       { binding: 6, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       // Ward 23: size uniform (base_size_px, max_size_px, density_factor, viewport_px)
       { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+      // Ward 26: view-projection, kun når et rigtigt kamera driver pipelinen
+      ...(viewProjSource === "uniform"
+        ? [{ binding: 8, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" as const } }]
+        : []),
     ],
   });
 

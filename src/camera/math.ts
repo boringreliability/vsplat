@@ -101,3 +101,22 @@ export function lookAtMatrix(
 
   return out;
 }
+
+/**
+ * Column-Major 4x4 matrix-produkt: returnerer `a · b`.
+ *
+ * Ward 026: point-stien skal bygge en view-projection ud af
+ * `perspectiveMatrix` og `lookAtMatrix`. Indeksering er `m[col * 4 + row]`,
+ * som resten af projektet.
+ */
+export function multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(16);
+  for (let col = 0; col < 4; col++) {
+    for (let row = 0; row < 4; row++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += a[k * 4 + row]! * b[col * 4 + k]!;
+      out[col * 4 + row] = sum;
+    }
+  }
+  return out;
+}
